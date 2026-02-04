@@ -19,3 +19,11 @@ A social app where users can **create events**, **discover nearby events**, and 
 ## Tech Stack
 - Backend: Node.js + PostgreSQL
 - Frontend: (team choice)
+
+
+## Requirements
+- Download Node.js
+- For windows users: download android studio, create a project, and add a running device
+- Commands to run the project:
+- cd village
+- npm run android
