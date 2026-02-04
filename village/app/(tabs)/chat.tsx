@@ -1,9 +1,9 @@
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 const messages = [
-  { id: '1', sender: 'Alex', body: 'Hey everyone!' },
-  { id: '2', sender: 'Jordan', body: 'Welcome to the village chat.' },
-  { id: '3', sender: 'Taylor', body: 'Anyone joining the event later?' },
+  { id: '1', sender: 'me', body: 'hello there!' },
+  { id: '2', sender: 'myself', body: 'what up' },
+  { id: '3', sender: 'i', body: 'bleh' },
 ];
 
 export default function ChatScreen() {
