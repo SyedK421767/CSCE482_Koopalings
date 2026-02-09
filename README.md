@@ -27,3 +27,4 @@ A social app where users can **create events**, **discover nearby events**, and 
 - Commands to run the project:
 - cd village
 - npm run android
+- or run npx expo start
