@@ -1,31 +1,56 @@
-import { useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-const initialPosts = [
-  { id: '1', title: 'Welcome to the village', author: 'Sandali' },
-  { id: '2', title: 'Sports event', author: 'Sandali S' },
-  { id: '3', title: 'This is so fun', author: 'sand' },
-];
+const API_URL = 'http://10.247.66.130:3000';
+
+type Post = {
+  postid: number;
+  title: string;
+  username: string;
+};
 
 export default function ForumScreen() {
-  const [posts, setPosts] = useState(initialPosts);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
   const [eventTitle, setEventTitle] = useState('');
   const [eventAuthor, setEventAuthor] = useState('');
 
-  const handleAddEvent = () => {
+  const fetchPosts = async () => {
+    try {
+      const response = await fetch(`${API_URL}/posts`);
+      const data = await response.json();
+      setPosts(data);
+    } catch (err) {
+      console.error('Failed to fetch posts:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPosts();
+  }, []);
+
+  const handleAddEvent = async () => {
     if (!eventTitle.trim() || !eventAuthor.trim()) return;
 
-    setPosts((currentPosts) => [
-      {
-        id: Date.now().toString(),
-        title: eventTitle.trim(),
-        author: eventAuthor.trim(),
-      },
-      ...currentPosts,
-    ]);
-
-    setEventTitle('');
-    setEventAuthor('');
+    try {
+      await fetch(`${API_URL}/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userID: 1,
+          title: eventTitle.trim(),
+          description: '',
+          location: '',
+        }),
+      });
+      setEventTitle('');
+      setEventAuthor('');
+      fetchPosts();
+    } catch (err) {
+      console.error('Failed to add post:', err);
+    }
   };
 
   return (
@@ -48,17 +73,21 @@ export default function ForumScreen() {
           <Text style={styles.buttonText}>Add Event</Text>
         </Pressable>
       </View>
-      <FlatList
-        data={posts}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <View style={styles.postCard}>
-            <Text style={styles.postTitle}>{item.title}</Text>
-            <Text style={styles.postAuthor}>by {item.author}</Text>
-          </View>
-        )}
-      />
+      {loading ? (
+        <ActivityIndicator size="large" color="#111827" />
+      ) : (
+        <FlatList
+          data={posts}
+          keyExtractor={(item) => item.postid.toString()}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => (
+            <View style={styles.postCard}>
+              <Text style={styles.postTitle}>{item.title}</Text>
+              <Text style={styles.postAuthor}>by {item.username}</Text>
+            </View>
+          )}
+        />
+      )}
     </View>
   );
 }
