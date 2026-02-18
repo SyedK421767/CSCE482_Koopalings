@@ -28,3 +28,7 @@ A social app where users can **create events**, **discover nearby events**, and 
 - cd village
 - npm run android
 - or run npx expo start
+- change const API_URL = (at the top of each page) to own ip 
+- IP can be found by running ipconfig  on terminal and looking for IPv4 Address (add :3000 after)
+- Example: const API_URL = 'http://10.247.66.130:3000';
+- In seperate terminal cd into village-backend and run: npm run dev
