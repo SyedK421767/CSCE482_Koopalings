@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-const API_URL = 'http://10.247.66.130:3000';
+const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
 type Post = {
   postid: number;
