@@ -7,10 +7,9 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`
-      SELECT p.PostID, p.Title, u.Username
+      SELECT p.PostID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL
       FROM Posts p
-      JOIN Users u ON p.UserID = u.UserID
-      ORDER BY p.DateAndTime DESC
+      ORDER BY p.DateAndTime DESC 
     `);
     res.json(result.rows);
   } catch (err) {
