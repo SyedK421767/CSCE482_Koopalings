@@ -9,7 +9,7 @@ type Post = {
   username: string;
 };
 
-export default function ForumScreen() {
+export default function HomeScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [eventTitle, setEventTitle] = useState('');
@@ -55,7 +55,7 @@ export default function ForumScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Forum</Text>
+      <Text style={styles.title}>Home</Text>
       <View style={styles.form}>
         <TextInput
           value={eventTitle}

@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/auth-context';
 
-export default function SettingsScreen() {
+export default function ProfileScreen() {
   const router = useRouter();
   const { setIsSignedIn } = useAuth();
 
@@ -14,7 +14,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Settings</Text>
+      <Text style={styles.title}>Profile</Text>
       <Pressable style={styles.button} onPress={handleLogout}>
         <Text style={styles.buttonText}>Log Out</Text>
       </Pressable>

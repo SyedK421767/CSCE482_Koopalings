@@ -55,7 +55,7 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Map</Text>
+      <Text style={styles.title}>Explore</Text>
       <Pressable style={styles.button} onPress={requestAndFetchLocation} disabled={isLoading}>
         <Text style={styles.buttonText}>
           {coords ? 'Refresh Location' : 'Allow Location Access'}

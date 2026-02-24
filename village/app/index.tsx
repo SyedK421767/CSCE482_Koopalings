@@ -12,7 +12,7 @@ export default function LoginScreen() {
 
   const handleSignIn = () => {
     setIsSignedIn(true);
-    router.replace('/(tabs)/forum');
+    router.replace('/(tabs)/home');
   };
 
   return (
