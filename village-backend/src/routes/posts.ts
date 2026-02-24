@@ -20,13 +20,13 @@ router.get('/', async (req: Request, res: Response) => {
 
 // POST a new post
 router.post('/', async (req: Request, res: Response) => {
-  const { userID, title, description, location } = req.body;
+  const { userID, displayname, title, description, location, address, start_time, dateandtime, image_url } = req.body;
   try {
     const result = await pool.query(
-      `INSERT INTO Posts (UserID, Title, Description, Location, DateAndTime)
-       VALUES ($1, $2, $3, $4, NOW())
+      `INSERT INTO Posts (UserID, DisplayName, Title, Description, Location, Address, Start_Time, DateAndTime, Image_URL)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [userID, title, description, location]
+      [userID, displayname, title, description, location, address, start_time, dateandtime, image_url]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -34,5 +34,4 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to create post' });
   }
 });
-
 export default router;
