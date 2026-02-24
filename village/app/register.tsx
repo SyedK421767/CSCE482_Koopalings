@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -10,10 +10,14 @@ export default function RegisterScreen() {
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const handleCreateAccount = async () => {
-    const fields = [firstName, lastName, phoneNumber, email];
+      console.log('Using API_URL:', API_URL);
+
+    const fields = [firstName, lastName, phoneNumber, email, username, password];
     const hasEmptyField = fields.some((field) => field.trim().length === 0);
 
     if (hasEmptyField) {
@@ -32,6 +36,8 @@ export default function RegisterScreen() {
           last_name: lastName.trim(),
           phone_number: phoneNumber.trim(),
           email: email.trim().toLowerCase(),
+          username: username.trim(),
+          password: password,
         }),
       });
 
@@ -85,6 +91,20 @@ export default function RegisterScreen() {
         onChangeText={setEmail}
         placeholder="Email"
         keyboardType="email-address"
+        autoCapitalize="none"
+        style={styles.input}
+      />
+      <TextInput
+        value={username}
+        onChangeText={setUsername}
+        placeholder="Username"
+        autoCapitalize="none"
+        style={styles.input}
+      />
+      <TextInput
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Password"
         autoCapitalize="none"
         style={styles.input}
       />
