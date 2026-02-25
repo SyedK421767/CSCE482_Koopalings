@@ -1,23 +1,71 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 
-import { useAuth } from '@/context/auth-context';
+const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+
+type Profile = {
+  profileid: number;
+  userid: number;
+  displayname: string;
+  profilepicture: string | null;
+  bio: string | null;
+};
 
 export default function ProfileScreen() {
-  const router = useRouter();
-  const { setIsSignedIn } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleLogout = () => {
-    setIsSignedIn(false);
-    router.replace('/');
+  const fetchProfile = async () => {
+    try {
+      const response = await fetch(`${API_URL}/profiles`);
+      const text = await response.text();
+      if (!response.ok) {
+        console.error('Profiles fetch failed:', response.status, text.slice(0, 100));
+        return;
+      }
+      const data = text.startsWith('[') || text.startsWith('{') ? JSON.parse(text) : null;
+      setProfile(Array.isArray(data) ? data[0] ?? null : null);
+    } catch (err) {
+      console.error('Failed to fetch profile:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#111827" />
+      </View>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Profile</Text>
+        <Text style={styles.emptyText}>No profile data available.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Profile</Text>
-      <Pressable style={styles.button} onPress={handleLogout}>
-        <Text style={styles.buttonText}>Log Out</Text>
-      </Pressable>
+      <View style={styles.card}>
+        {profile.profilepicture && (
+          <Image source={{ uri: profile.profilepicture }} style={styles.profileImage} />
+        )}
+        <Text style={styles.label}>Display name</Text>
+        <Text style={styles.value}>{profile.displayname || '—'}</Text>
+
+        <Text style={styles.label}>Bio</Text>
+        <Text style={styles.value}>{profile.bio || 'No bio yet.'}</Text>
+      </View>
     </View>
   );
 }
@@ -27,22 +75,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     padding: 24,
-    justifyContent: 'center',
-    gap: 16,
+    paddingTop: 64,
   },
   title: {
     fontSize: 30,
     fontWeight: '700',
+    marginBottom: 16,
   },
-  button: {
-    backgroundColor: '#b91c1c',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
+  emptyText: {
     fontSize: 16,
+    color: '#6b7280',
+  },
+  card: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 20,
+    backgroundColor: '#f9fafb',
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 16,
+    alignSelf: 'center',
+  },
+  label: {
+    fontSize: 12,
     fontWeight: '600',
+    color: '#6b7280',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  value: {
+    fontSize: 16,
+    color: '#111827',
   },
 });
