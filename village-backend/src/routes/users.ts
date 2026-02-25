@@ -7,7 +7,7 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`
-      SELECT userid, first_name, last_name, phone_number, email, username, type
+      SELECT userid, first_name, last_name, phone_number, email, type
       FROM users
       ORDER BY userid DESC
     `);
@@ -25,12 +25,11 @@ router.post('/', async (req: Request, res: Response) => {
     last_name,
     phone_number,
     email,
-    username,
     password
   } = req.body;
 
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
   }
 
   const type = 'regular'; // <- hardcoded cleanly
@@ -40,17 +39,16 @@ router.post('/', async (req: Request, res: Response) => {
       `
       INSERT INTO users (
         type,
-        username,
         password,
         phone_number,
         email,
         first_name,
         last_name
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      VALUES ($1,$2,$3,$4,$5,$6)
       RETURNING *
       `,
-      [type, username, password, phone_number, email, first_name, last_name]
+      [type, password, phone_number, email, first_name, last_name]
     );
 
     res.status(201).json(result.rows[0]);
