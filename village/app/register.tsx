@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { setIsSignedIn } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -51,9 +53,8 @@ export default function RegisterScreen() {
       const user = await res.json();
       console.log('Created user:', user); // should have userid from DB
 
-      Alert.alert('Account created', 'Your account has been created successfully.', [
-        { text: 'OK', onPress: () => router.replace('/') },
-      ]);
+      setIsSignedIn(true);
+      router.replace('/(tabs)/home');
     } catch (e) {
       console.error('Network error:', e);
       Alert.alert('Error', 'Network error. Try again.');
@@ -106,6 +107,7 @@ export default function RegisterScreen() {
         onChangeText={setPassword}
         placeholder="Password"
         autoCapitalize="none"
+        secureTextEntry
         style={styles.input}
       />
       <Pressable style={styles.button} onPress={handleCreateAccount} disabled={submitting}>
