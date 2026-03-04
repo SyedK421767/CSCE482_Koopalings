@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import pool from '../db';
 
 const router = Router();
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // GET all users
 router.get('/', async (req: Request, res: Response) => {
@@ -21,9 +22,23 @@ router.get('/', async (req: Request, res: Response) => {
 // POST log in user
 router.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
+  const normalizedEmail = String(email ?? '').trim();
+  const normalizedPassword = String(password ?? '');
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
+  if (!normalizedEmail && !normalizedPassword) {
+    return res.status(400).json({ error: 'Please enter your email and password' });
+  }
+
+  if (!normalizedEmail) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  if (!normalizedPassword) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  if (!EMAIL_REGEX.test(normalizedEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid email address' });
   }
 
   try {
@@ -31,10 +46,10 @@ router.post('/login', async (req: Request, res: Response) => {
       `
       SELECT userid, first_name, last_name, phone_number, email, type, password
       FROM users
-      WHERE email = $1
+      WHERE LOWER(email) = LOWER($1)
       LIMIT 1
       `,
-      [email]
+      [normalizedEmail]
     );
 
     if (result.rows.length === 0) {
@@ -43,7 +58,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const user = result.rows[0];
 
-    if (user.password !== password) {
+    if (user.password !== normalizedPassword) {
       return res.status(401).json({ error: 'Incorrect credentials' });
     }
 

@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 
 const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -14,10 +15,26 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   const handleSignIn = async () => {
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const enteredPassword = password;
 
-    if (!trimmedEmail || !password) {
-      Alert.alert('Incorrect credentials');
+    if (!trimmedEmail && !enteredPassword) {
+      Alert.alert('Please enter your email and password');
+      return;
+    }
+
+    if (!trimmedEmail) {
+      Alert.alert('Email is required');
+      return;
+    }
+
+    if (!enteredPassword) {
+      Alert.alert('Password is required');
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(trimmedEmail)) {
+      Alert.alert('Please enter a valid email address');
       return;
     }
 
@@ -29,11 +46,28 @@ export default function LoginScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: trimmedEmail,
-          password,
+          password: enteredPassword,
         }),
       });
 
       if (!res.ok) {
+        const errorPayload = await res.json().catch(() => null);
+        if (errorPayload?.error === 'Please enter your email and password') {
+          Alert.alert('Please enter your email and password');
+          return;
+        }
+        if (errorPayload?.error === 'Email is required') {
+          Alert.alert('Email is required');
+          return;
+        }
+        if (errorPayload?.error === 'Password is required') {
+          Alert.alert('Password is required');
+          return;
+        }
+        if (errorPayload?.error === 'Please enter a valid email address') {
+          Alert.alert('Please enter a valid email address');
+          return;
+        }
         Alert.alert('Incorrect credentials');
         return;
       }
