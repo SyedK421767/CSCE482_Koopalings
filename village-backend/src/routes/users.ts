@@ -18,6 +18,43 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// POST log in user
+router.post('/login', async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT userid, first_name, last_name, phone_number, email, type, password
+      FROM users
+      WHERE email = $1
+      LIMIT 1
+      `,
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Incorrect credentials' });
+    }
+
+    const user = result.rows[0];
+
+    if (user.password !== password) {
+      return res.status(401).json({ error: 'Incorrect credentials' });
+    }
+
+    const { password: _password, ...safeUser } = user;
+    return res.json(safeUser);
+  } catch (err) {
+    console.error('Failed to log in:', err);
+    return res.status(500).json({ error: 'Failed to log in' });
+  }
+});
+
 // POST create a new user
 router.post('/', async (req: Request, res: Response) => {
   const {
@@ -32,7 +69,7 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Email and password required' });
   }
 
-  const type = 'regular'; // <- hardcoded cleanly
+  const type = 'regular';
 
   try {
     const result = await pool.query(
