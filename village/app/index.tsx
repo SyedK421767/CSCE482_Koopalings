@@ -1,18 +1,51 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/auth-context';
+
+const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { setIsSignedIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSignIn = () => {
-    setIsSignedIn(true);
-    router.replace('/(tabs)/home');
+  const handleSignIn = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail || !password) {
+      Alert.alert('Incorrect credentials');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+
+      const res = await fetch(`${API_URL}/users/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          password,
+        }),
+      });
+
+      if (!res.ok) {
+        Alert.alert('Incorrect credentials');
+        return;
+      }
+
+      setIsSignedIn(true);
+      router.replace('/(tabs)/home');
+    } catch (error) {
+      console.error('Login failed:', error);
+      Alert.alert('Incorrect credentials');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -33,8 +66,8 @@ export default function LoginScreen() {
         secureTextEntry
         style={styles.input}
       />
-      <Pressable style={styles.button} onPress={handleSignIn}>
-        <Text style={styles.buttonText}>Sign In</Text>
+      <Pressable style={styles.button} onPress={handleSignIn} disabled={submitting}>
+        <Text style={styles.buttonText}>{submitting ? 'Signing In...' : 'Sign In'}</Text>
       </Pressable>
       <Pressable onPress={() => router.push('/register')}>
         <Text style={styles.registerLink}>
