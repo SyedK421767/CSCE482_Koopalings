@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import postsRouter from './routes/posts';
 import usersRouter from './routes/users';
+import profilesRouter from './routes/profiles';
 import uploadRouter from './routes/upload';
 
 dotenv.config();
@@ -15,6 +16,7 @@ app.use(express.json());
 
 app.use('/posts', postsRouter);
 app.use('/users', usersRouter);
+app.use('/profiles', profilesRouter);
 app.use('/upload', uploadRouter);
 
 app.listen(PORT, () => {
