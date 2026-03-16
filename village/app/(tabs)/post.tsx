@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +18,11 @@ import * as ImagePicker from 'expo-image-picker';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
+interface Tag {
+  tagid: number;
+  name: string;
+}
+
 export default function PostScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -26,6 +33,25 @@ export default function PostScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
+  const [showTagModal, setShowTagModal] = useState(false);
+
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const response = await fetch(`${API_URL}/posts/tags`);
+        const data = await response.json();
+        setTags(data);
+      } catch (err) {
+        console.error('Failed to fetch tags:', err);
+      }
+    };
+    fetchTags();
+  }, []);
+
+  const selectedTagName = tags.find((t) => t.tagid === selectedTagId)?.name;
 
   const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') setShowDatePicker(false);
@@ -109,6 +135,7 @@ export default function PostScreen() {
           start_time: combinedDateTime.toISOString(),
           dateandtime: combinedDateTime.toISOString(),
           image_url: imageUrl,
+          tagIds: selectedTagId ? [selectedTagId] : [],
         }),
       });
 
@@ -119,6 +146,7 @@ export default function PostScreen() {
       setDate(new Date());
       setTime(new Date());
       setImage(null);
+      setSelectedTagId(null);
     } catch (err) {
       console.error('Failed to create post:', err);
       Alert.alert('Error', 'Failed to create post. Please try again.');
@@ -170,32 +198,76 @@ export default function PostScreen() {
           style={styles.input}
         />
 
+        {/* Tag selector */}
+        <Pressable style={styles.pickerButton} onPress={() => setShowTagModal(true)}>
+          <Text style={styles.pickerLabel}>Tag</Text>
+          <Text style={[styles.pickerValue, !selectedTagName && { color: '#9ca3af' }]}>
+            {selectedTagName || 'Select a tag...'}
+          </Text>
+        </Pressable>
+
+        <Modal visible={showTagModal} transparent animationType="slide">
+          <Pressable style={styles.modalOverlay} onPress={() => setShowTagModal(false)}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Select a Tag</Text>
+              <FlatList
+                data={tags}
+                keyExtractor={(item) => item.tagid.toString()}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[
+                      styles.tagOption,
+                      item.tagid === selectedTagId && styles.tagOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setSelectedTagId(item.tagid);
+                      setShowTagModal(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.tagOptionText,
+                        item.tagid === selectedTagId && styles.tagOptionTextSelected,
+                      ]}
+                    >
+                      {item.name}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+              <Pressable style={styles.modalCancel} onPress={() => setShowTagModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+
         <Pressable style={styles.pickerButton} onPress={() => setShowDatePicker(true)}>
           <Text style={styles.pickerLabel}>Date</Text>
           <Text style={styles.pickerValue}>{formattedDate}</Text>
         </Pressable>
-            {showDatePicker && (
-        <DateTimePicker
+        {showDatePicker && (
+          <DateTimePicker
             value={date}
             mode="date"
             display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
             onChange={handleDateChange}
             textColor="#111827"
-        />
+          />
         )}
 
         <Pressable style={styles.pickerButton} onPress={() => setShowTimePicker(true)}>
           <Text style={styles.pickerLabel}>Time</Text>
           <Text style={styles.pickerValue}>{formattedTime}</Text>
         </Pressable>
-                {showTimePicker && (
-        <DateTimePicker
+        {showTimePicker && (
+          <DateTimePicker
             value={time}
             mode="time"
             display={Platform.OS === 'ios' ? 'spinner' : 'clock'}
             onChange={handleTimeChange}
             textColor="#111827"
-        />
+          />
         )}
 
         <Pressable style={styles.imagePicker} onPress={handlePickImage}>
@@ -301,5 +373,49 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    maxHeight: '50%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  tagOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  tagOptionSelected: {
+    backgroundColor: '#f3f4f6',
+  },
+  tagOptionText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  tagOptionTextSelected: {
+    fontWeight: '600',
+  },
+  modalCancel: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
   },
 });
