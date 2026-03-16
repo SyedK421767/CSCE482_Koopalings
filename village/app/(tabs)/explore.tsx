@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Location from 'expo-location';
 import MapView, { Circle, Marker } from 'react-native-maps';
 
 export default function MapScreen() {
+  const [searchText, setSearchText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coords, setCoords] = useState<Location.LocationObjectCoords | null>(null);
@@ -14,7 +15,6 @@ export default function MapScreen() {
   const mapRegion = useMemo(() => {
     if (!coords) return null;
 
-    // Fit about a 1-mile radius circle with slight breathing room.
     const latitudeDelta = (radiusMeters * 2.4) / 111320;
     const longitudeDelta =
       (radiusMeters * 2.4) / (111320 * Math.max(Math.cos((coords.latitude * Math.PI) / 180), 0.2));
@@ -56,6 +56,21 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Explore</Text>
+
+      <View style={styles.searchRow}>
+        <TextInput
+          style={styles.searchBar}
+          placeholder="Search events, hobbies, or places"
+          placeholderTextColor="#8b8b8b"
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+
+        <Pressable style={styles.filterButton}>
+          <Text style={styles.filterIcon}>⚙️</Text>
+        </Pressable>
+      </View>
+
       <Pressable style={styles.button} onPress={requestAndFetchLocation} disabled={isLoading}>
         <Text style={styles.buttonText}>
           {coords ? 'Refresh Location' : 'Allow Location Access'}
@@ -68,7 +83,10 @@ export default function MapScreen() {
       {coords && mapRegion ? (
         <>
           <MapView style={styles.map} initialRegion={mapRegion} region={mapRegion} showsUserLocation>
-            <Marker coordinate={{ latitude: coords.latitude, longitude: coords.longitude }} title="You are here" />
+            <Marker
+              coordinate={{ latitude: coords.latitude, longitude: coords.longitude }}
+              title="You are here"
+            />
             <Circle
               center={{ latitude: coords.latitude, longitude: coords.longitude }}
               radius={radiusMeters}
@@ -102,6 +120,38 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '700',
     marginBottom: 16,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+
+  searchBar: {
+    flex: 1,
+    height: 48,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+
+  filterButton: {
+    marginLeft: 10,
+    height: 48,
+    width: 48,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+
+  filterIcon: {
+    fontSize: 18,
   },
   button: {
     backgroundColor: '#111827',
