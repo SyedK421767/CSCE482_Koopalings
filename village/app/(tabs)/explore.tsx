@@ -47,6 +47,10 @@ export default function ExploreScreen() {
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [hasImageOnly, setHasImageOnly] = useState(false);
 
+  //use-states for hardcoded location pins
+  const [eventMarkers, setEventMarkers] = useState<any[]>([]);
+  const [loadingMarkers, setLoadingMarkers] = useState(false);
+
   const radiusMiles = 1;
   const radiusMeters = radiusMiles * 1609.34;
 
@@ -89,6 +93,53 @@ export default function ExploreScreen() {
     fetchPosts();
     requestAndFetchLocation();
   }, []);
+
+  //useEffect for hard-coded pins
+  useEffect(() => {
+    if (posts.length > 0) {
+      geocodePostLocations();
+    }
+  }, [posts]);
+  ///////////////
+
+  //hard-coded location pins
+  const geocodePostLocations = async () => {
+    setLoadingMarkers(true);
+
+    try {
+      const results = await Promise.all(
+        posts.map(async (post) => {
+          if (!post.location?.trim()) return null;
+
+          try {
+            const geo = await Location.geocodeAsync(post.location);
+
+            if (geo.length > 0) {
+              return {
+                postid: post.postid,
+                title: post.title,
+                location: post.location,
+                latitude: geo[0].latitude,
+                longitude: geo[0].longitude,
+              };
+            }
+          } catch (err) {
+            console.log('Geocode failed:', post.location);
+          }
+
+          return null;
+        })
+      );
+
+      // remove failed ones
+      setEventMarkers(results.filter(Boolean));
+    } catch (err) {
+      console.error('Geocoding failed:', err);
+    } finally {
+      setLoadingMarkers(false);
+    }
+  };
+  //////////
 
   const filteredPosts = useMemo(() => {
     const searchQuery = searchText.toLowerCase().trim();
@@ -232,6 +283,22 @@ export default function ExploreScreen() {
                   strokeColor="rgba(29, 78, 216, 0.8)"
                   fillColor="rgba(59, 130, 246, 0.2)"
                 />
+                {eventMarkers.map((marker) => (
+                <Marker
+                  key={marker.postid}
+                  coordinate={{
+                    latitude: marker.latitude,
+                    longitude: marker.longitude,
+                  }}
+                  title={marker.title}
+                  description={marker.location}
+                  pinColor="red"
+                  onPress={() => {
+                    const selected = posts.find(p => p.postid === marker.postid) || null;
+                    setSelectedPost(selected);
+                  }}
+                />
+              ))}
               </MapView>
 
               <View style={styles.infoCard}>
@@ -455,7 +522,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   mapSection: {
-    paddingBottom: 100,
+    //paddingBottom: 100,
+    flex: 1,
   },
   locationButton: {
     backgroundColor: '#111827',
@@ -477,11 +545,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   map: {
-    height: 300,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    overflow: 'hidden',
+    flex: 1,
+    borderRadius: 0,
   },
   infoCard: {
     borderWidth: 1,
