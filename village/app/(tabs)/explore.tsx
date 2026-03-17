@@ -1,34 +1,60 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import * as Location from 'expo-location';
 import MapView, { Circle, Marker } from 'react-native-maps';
+import { Ionicons } from '@expo/vector-icons';
 
-export default function MapScreen() {
+const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+
+type Post = {
+  postid: number;
+  title: string;
+  displayname: string;
+  location: string;
+  start_time: string;
+  description: string;
+  image_url: string | null;
+};
+
+export default function ExploreScreen() {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+
   const [searchText, setSearchText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coords, setCoords] = useState<Location.LocationObjectCoords | null>(null);
 
   const radiusMiles = 1;
   const radiusMeters = radiusMiles * 1609.34;
 
-  const mapRegion = useMemo(() => {
-    if (!coords) return null;
-
-    const latitudeDelta = (radiusMeters * 2.4) / 111320;
-    const longitudeDelta =
-      (radiusMeters * 2.4) / (111320 * Math.max(Math.cos((coords.latitude * Math.PI) / 180), 0.2));
-
-    return {
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-      latitudeDelta,
-      longitudeDelta,
-    };
-  }, [coords, radiusMeters]);
+  const fetchPosts = async () => {
+    try {
+      const response = await fetch(`${API_URL}/posts`);
+      const data = await response.json();
+      setPosts(data);
+    } catch (err) {
+      console.error('Failed to fetch posts:', err);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
 
   const requestAndFetchLocation = async () => {
-    setIsLoading(true);
+    setIsLoadingLocation(true);
     setError(null);
 
     try {
@@ -41,17 +67,48 @@ export default function MapScreen() {
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
+
       setCoords(position.coords);
     } catch {
       setError('Could not fetch your location. Please try again.');
     } finally {
-      setIsLoading(false);
+      setIsLoadingLocation(false);
     }
   };
 
   useEffect(() => {
+    fetchPosts();
     requestAndFetchLocation();
   }, []);
+
+  const filteredPosts = useMemo(() => {
+    const query = searchText.toLowerCase().trim();
+
+    if (!query) return posts;
+
+    return posts.filter((post) =>
+      post.title.toLowerCase().includes(query) ||
+      post.displayname.toLowerCase().includes(query) ||
+      post.location.toLowerCase().includes(query) ||
+      post.description.toLowerCase().includes(query)
+    );
+  }, [posts, searchText]);
+
+  const mapRegion = useMemo(() => {
+    if (!coords) return null;
+
+    const latitudeDelta = (radiusMeters * 2.4) / 111320;
+    const longitudeDelta =
+      (radiusMeters * 2.4) /
+      (111320 * Math.max(Math.cos((coords.latitude * Math.PI) / 180), 0.2));
+
+    return {
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      latitudeDelta,
+      longitudeDelta,
+    };
+  }, [coords, radiusMeters]);
 
   return (
     <View style={styles.container}>
@@ -67,44 +124,149 @@ export default function MapScreen() {
         />
 
         <Pressable style={styles.filterButton}>
-          <Text style={styles.filterIcon}>⚙️</Text>
+          <Ionicons name="options-outline" size={20} color="#374151" />
         </Pressable>
       </View>
 
-      <Pressable style={styles.button} onPress={requestAndFetchLocation} disabled={isLoading}>
-        <Text style={styles.buttonText}>
-          {coords ? 'Refresh Location' : 'Allow Location Access'}
-        </Text>
+      {!showMap ? (
+        loadingPosts ? (
+          <ActivityIndicator size="large" color="#111827" style={styles.loaderLarge} />
+        ) : (
+          <FlatList
+            data={filteredPosts}
+            keyExtractor={(item) => item.postid.toString()}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
+                {item.image_url && (
+                  <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+                )}
+                <Text style={styles.postTitle}>{item.title}</Text>
+                <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                <Text style={styles.postDetail}>📍 {item.location}</Text>
+                <Text style={styles.postDetail}>
+                  🕐{' '}
+                  {item.start_time
+                    ? new Date(item.start_time.replace('Z', '')).toLocaleString()
+                    : 'No time set'}
+                </Text>
+              </Pressable>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No events match your search.</Text>
+            }
+          />
+        )
+      ) : (
+        <View style={styles.mapSection}>
+          <Pressable
+            style={styles.locationButton}
+            onPress={requestAndFetchLocation}
+            disabled={isLoadingLocation}
+          >
+            <Text style={styles.locationButtonText}>
+              {coords ? 'Refresh Location' : 'Allow Location Access'}
+            </Text>
+          </Pressable>
+
+          {isLoadingLocation ? <ActivityIndicator size="small" style={styles.loader} /> : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          {coords && mapRegion ? (
+            <>
+              <MapView
+                style={styles.map}
+                initialRegion={mapRegion}
+                region={mapRegion}
+                showsUserLocation
+              >
+                <Marker
+                  coordinate={{
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                  }}
+                  title="You are here"
+                />
+                <Circle
+                  center={{
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                  }}
+                  radius={radiusMeters}
+                  strokeColor="rgba(29, 78, 216, 0.8)"
+                  fillColor="rgba(59, 130, 246, 0.2)"
+                />
+              </MapView>
+
+              <View style={styles.infoCard}>
+                <Text style={styles.infoText}>
+                  Center: {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
+                </Text>
+                <Text style={styles.infoText}>Radius: {radiusMiles} mile</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={styles.caption}>
+              Grant location access to see your 1-mile radius area.
+            </Text>
+          )}
+        </View>
+      )}
+
+      <Pressable
+        style={styles.floatingButton}
+        onPress={() => setShowMap((prev) => !prev)}
+      >
+        <Ionicons
+          name={showMap ? 'list-outline' : 'map-outline'}
+          size={24}
+          color="#fff"
+        />
       </Pressable>
 
-      {isLoading ? <ActivityIndicator size="small" style={styles.loader} /> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Modal
+        visible={selectedPost !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSelectedPost(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Pressable style={styles.closeButton} onPress={() => setSelectedPost(null)}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </Pressable>
 
-      {coords && mapRegion ? (
-        <>
-          <MapView style={styles.map} initialRegion={mapRegion} region={mapRegion} showsUserLocation>
-            <Marker
-              coordinate={{ latitude: coords.latitude, longitude: coords.longitude }}
-              title="You are here"
-            />
-            <Circle
-              center={{ latitude: coords.latitude, longitude: coords.longitude }}
-              radius={radiusMeters}
-              strokeColor="rgba(29, 78, 216, 0.8)"
-              fillColor="rgba(59, 130, 246, 0.2)"
-            />
-          </MapView>
+            {selectedPost && (
+              <>
+                {selectedPost.image_url && (
+                  <Image source={{ uri: selectedPost.image_url }} style={styles.modalImage} />
+                )}
 
-          <View style={styles.infoCard}>
-            <Text style={styles.infoText}>
-              Center: {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
-            </Text>
-            <Text style={styles.infoText}>Radius: {radiusMiles} mile</Text>
+                <Text style={styles.modalTitle}>{selectedPost.title}</Text>
+                <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
+                <Text style={styles.modalDetail}>
+                  🕐{' '}
+                  {selectedPost.start_time
+                    ? new Date(selectedPost.start_time.replace('Z', '')).toLocaleString()
+                    : 'No time set'}
+                </Text>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.descriptionLabel}>About this event</Text>
+                <Text style={styles.description}>
+                  {selectedPost.description || 'No description provided.'}
+                </Text>
+              </>
+            )}
           </View>
-        </>
-      ) : (
-        <Text style={styles.caption}>Grant location access to see your 1-mile radius area.</Text>
-      )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -126,7 +288,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
   },
-
   searchBar: {
     flex: 1,
     height: 48,
@@ -137,7 +298,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-
   filterButton: {
     marginLeft: 10,
     height: 48,
@@ -149,18 +309,57 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-
-  filterIcon: {
-    fontSize: 18,
+  loaderLarge: {
+    marginTop: 24,
   },
-  button: {
+  list: {
+    gap: 12,
+    paddingBottom: 100,
+  },
+  postCard: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: '#f9fafb',
+  },
+  cardImage: {
+    width: '100%',
+    height: 160,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  postTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  postAuthor: {
+    fontSize: 14,
+    color: '#4b5563',
+  },
+  postDetail: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  emptyText: {
+    marginTop: 24,
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  mapSection: {
+    paddingBottom: 100,
+  },
+  locationButton: {
     backgroundColor: '#111827',
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
     marginBottom: 12,
   },
-  buttonText: {
+  locationButtonText: {
     color: '#fff',
     fontSize: 15,
     fontWeight: '600',
@@ -196,5 +395,82 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: '#6b7280',
+  },
+  floatingButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxHeight: '80%',
+  },
+  closeButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+    padding: 4,
+  },
+  closeButtonText: {
+    fontSize: 20,
+    color: '#6b7280',
+  },
+  modalImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  modalAuthor: {
+    fontSize: 15,
+    color: '#4b5563',
+    marginBottom: 12,
+  },
+  divider: {
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    marginVertical: 12,
+  },
+  modalDetail: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 6,
+  },
+  descriptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  description: {
+    fontSize: 14,
+    color: '#4b5563',
+    lineHeight: 22,
   },
 });
