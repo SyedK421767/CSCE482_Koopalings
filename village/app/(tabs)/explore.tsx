@@ -260,30 +260,31 @@ export default function ExploreScreen() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           {coords && mapRegion ? (
-            <>
-              <MapView
-                style={styles.map}
-                initialRegion={mapRegion}
-                region={mapRegion}
-                showsUserLocation
-              >
-                <Marker
-                  coordinate={{
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
-                  }}
-                  title="You are here"
-                />
-                <Circle
-                  center={{
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
-                  }}
-                  radius={radiusMeters}
-                  strokeColor="rgba(29, 78, 216, 0.8)"
-                  fillColor="rgba(59, 130, 246, 0.2)"
-                />
-                {eventMarkers.map((marker) => (
+            <MapView
+              style={styles.map}
+              initialRegion={mapRegion}
+              region={mapRegion}
+              showsUserLocation
+            >
+              <Marker
+                coordinate={{
+                  latitude: coords.latitude,
+                  longitude: coords.longitude,
+                }}
+                title="You are here"
+              />
+
+              <Circle
+                center={{
+                  latitude: coords.latitude,
+                  longitude: coords.longitude,
+                }}
+                radius={radiusMeters}
+                strokeColor="rgba(29, 78, 216, 0.8)"
+                fillColor="rgba(59, 130, 246, 0.2)"
+              />
+
+              {eventMarkers.map((marker) => (
                 <Marker
                   key={marker.postid}
                   coordinate={{
@@ -294,20 +295,12 @@ export default function ExploreScreen() {
                   description={marker.location}
                   pinColor="red"
                   onPress={() => {
-                    const selected = posts.find(p => p.postid === marker.postid) || null;
+                    const selected = posts.find((p) => p.postid === marker.postid) || null;
                     setSelectedPost(selected);
                   }}
                 />
               ))}
-              </MapView>
-
-              <View style={styles.infoCard}>
-                <Text style={styles.infoText}>
-                  Center: {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
-                </Text>
-                <Text style={styles.infoText}>Radius: {radiusMiles} mile</Text>
-              </View>
-            </>
+            </MapView>
           ) : (
             <Text style={styles.caption}>
               Grant location access to see your 1-mile radius area.
@@ -547,19 +540,6 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
     borderRadius: 0,
-  },
-  infoCard: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
-    backgroundColor: '#f9fafb',
-    gap: 4,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#374151',
   },
   caption: {
     marginTop: 12,
