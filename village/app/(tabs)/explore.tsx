@@ -5,7 +5,9 @@ import {
   Image,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -37,6 +39,13 @@ export default function ExploreScreen() {
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coords, setCoords] = useState<Location.LocationObjectCoords | null>(null);
+
+  //use-states for filtering through posts
+  const [showFilters, setShowFilters] = useState(false);
+  const [locationFilter, setLocationFilter] = useState('');
+  const [creatorFilter, setCreatorFilter] = useState('');
+  const [upcomingOnly, setUpcomingOnly] = useState(false);
+  const [hasImageOnly, setHasImageOnly] = useState(false);
 
   const radiusMiles = 1;
   const radiusMeters = radiusMiles * 1609.34;
@@ -82,17 +91,40 @@ export default function ExploreScreen() {
   }, []);
 
   const filteredPosts = useMemo(() => {
-    const query = searchText.toLowerCase().trim();
+    const searchQuery = searchText.toLowerCase().trim();
+    const locationQuery = locationFilter.toLowerCase().trim();
+    const creatorQuery = creatorFilter.toLowerCase().trim();
+    const now = new Date();
 
-    if (!query) return posts;
+    return posts.filter((post) => {
+      const matchesSearch =
+        !searchQuery ||
+        post.title.toLowerCase().includes(searchQuery) ||
+        post.displayname.toLowerCase().includes(searchQuery) ||
+        post.location.toLowerCase().includes(searchQuery) ||
+        post.description.toLowerCase().includes(searchQuery);
 
-    return posts.filter((post) =>
-      post.title.toLowerCase().includes(query) ||
-      post.displayname.toLowerCase().includes(query) ||
-      post.location.toLowerCase().includes(query) ||
-      post.description.toLowerCase().includes(query)
-    );
-  }, [posts, searchText]);
+      const matchesLocation =
+        !locationQuery || post.location.toLowerCase().includes(locationQuery);
+
+      const matchesCreator =
+        !creatorQuery || post.displayname.toLowerCase().includes(creatorQuery);
+
+      const matchesUpcoming =
+        !upcomingOnly ||
+        (post.start_time && new Date(post.start_time.replace('Z', '')) >= now);
+
+      const matchesImage = !hasImageOnly || !!post.image_url;
+
+      return (
+        matchesSearch &&
+        matchesLocation &&
+        matchesCreator &&
+        matchesUpcoming &&
+        matchesImage
+      );
+    });
+  }, [posts, searchText, locationFilter, creatorFilter, upcomingOnly, hasImageOnly]);
 
   const mapRegion = useMemo(() => {
     if (!coords) return null;
@@ -123,7 +155,10 @@ export default function ExploreScreen() {
           onChangeText={setSearchText}
         />
 
-        <Pressable style={styles.filterButton}>
+        <Pressable
+          style={styles.filterButton}
+          onPress={() => setShowFilters(true)}
+        >
           <Ionicons name="options-outline" size={20} color="#374151" />
         </Pressable>
       </View>
@@ -267,6 +302,76 @@ export default function ExploreScreen() {
           </View>
         </View>
       </Modal>
+      
+      <Modal
+        visible={showFilters}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowFilters(false)}
+          >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filterModalContent}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Filters</Text>
+              <Pressable onPress={() => setShowFilters(false)}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.filterLabel}>Location</Text>
+              <TextInput
+                style={styles.filterInput}
+                placeholder="Filter by location"
+                placeholderTextColor="#8b8b8b"
+                value={locationFilter}
+                onChangeText={setLocationFilter}
+              />
+
+              <Text style={styles.filterLabel}>Creator</Text>
+              <TextInput
+                style={styles.filterInput}
+                placeholder="Filter by creator"
+                placeholderTextColor="#8b8b8b"
+                value={creatorFilter}
+                onChangeText={setCreatorFilter}
+              />
+
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Upcoming events only</Text>
+                <Switch value={upcomingOnly} onValueChange={setUpcomingOnly} />
+              </View>
+
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Only posts with images</Text>
+                <Switch value={hasImageOnly} onValueChange={setHasImageOnly} />
+              </View>
+            </ScrollView>
+
+            <View style={styles.filterActions}>
+              <Pressable
+                style={styles.clearButton}
+                onPress={() => {
+                  setLocationFilter('');
+                  setCreatorFilter('');
+                  setUpcomingOnly(false);
+                  setHasImageOnly(false);
+                }}
+              >
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.applyButton}
+                onPress={() => setShowFilters(false)}
+              >
+                <Text style={styles.applyButtonText}>Apply</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -411,6 +516,98 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
+  },
+  filterModalContent: {
+  backgroundColor: '#fff',
+  borderRadius: 16,
+  padding: 20,
+  width: '100%',
+  maxHeight: '80%',
+},
+
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+
+  filterTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+  },
+
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+    marginTop: 8,
+  },
+
+  filterInput: {
+    height: 48,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 12,
+  },
+
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+
+  switchLabel: {
+    fontSize: 15,
+    color: '#374151',
+    flex: 1,
+    marginRight: 12,
+  },
+
+  filterActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 12,
+  },
+
+  clearButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+
+  clearButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+
+  applyButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#111827',
+  },
+
+  applyButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
   },
   modalOverlay: {
     flex: 1,
