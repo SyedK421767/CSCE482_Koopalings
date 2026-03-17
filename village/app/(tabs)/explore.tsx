@@ -51,6 +51,22 @@ export default function ExploreScreen() {
   const [eventMarkers, setEventMarkers] = useState<any[]>([]);
   const [loadingMarkers, setLoadingMarkers] = useState(false);
 
+  //hard-coded hobbies
+  const hobbies = [
+    'All',
+    'Hiking',
+    'Food',
+    'Sports',
+    'Music',
+    'Gaming',
+    'Art',
+    'Study',
+    'Movies',
+    'Fitness',
+  ];
+
+  const [selectedHobby, setSelectedHobby] = useState('All');
+
   const radiusMiles = 1;
   const radiusMeters = radiusMiles * 1609.34;
 
@@ -145,21 +161,25 @@ export default function ExploreScreen() {
     const searchQuery = searchText.toLowerCase().trim();
     const locationQuery = locationFilter.toLowerCase().trim();
     const creatorQuery = creatorFilter.toLowerCase().trim();
+    const hobbyQuery = selectedHobby.toLowerCase().trim();
     const now = new Date();
 
     return posts.filter((post) => {
+      const title = post.title?.toLowerCase() || '';
+      const creator = post.displayname?.toLowerCase() || '';
+      const location = post.location?.toLowerCase() || '';
+      const description = post.description?.toLowerCase() || '';
+
       const matchesSearch =
         !searchQuery ||
-        post.title.toLowerCase().includes(searchQuery) ||
-        post.displayname.toLowerCase().includes(searchQuery) ||
-        post.location.toLowerCase().includes(searchQuery) ||
-        post.description.toLowerCase().includes(searchQuery);
+        title.includes(searchQuery) ||
+        creator.includes(searchQuery) ||
+        location.includes(searchQuery) ||
+        description.includes(searchQuery);
 
-      const matchesLocation =
-        !locationQuery || post.location.toLowerCase().includes(locationQuery);
+      const matchesLocation = !locationQuery || location.includes(locationQuery);
 
-      const matchesCreator =
-        !creatorQuery || post.displayname.toLowerCase().includes(creatorQuery);
+      const matchesCreator = !creatorQuery || creator.includes(creatorQuery);
 
       const matchesUpcoming =
         !upcomingOnly ||
@@ -167,15 +187,29 @@ export default function ExploreScreen() {
 
       const matchesImage = !hasImageOnly || !!post.image_url;
 
+      const matchesHobby =
+        selectedHobby === 'All' ||
+        title.includes(hobbyQuery) ||
+        description.includes(hobbyQuery);
+
       return (
         matchesSearch &&
         matchesLocation &&
         matchesCreator &&
         matchesUpcoming &&
-        matchesImage
+        matchesImage &&
+        matchesHobby
       );
     });
-  }, [posts, searchText, locationFilter, creatorFilter, upcomingOnly, hasImageOnly]);
+  }, [
+    posts,
+    searchText,
+    locationFilter,
+    creatorFilter,
+    upcomingOnly,
+    hasImageOnly,
+    selectedHobby,
+  ]);
 
   const mapRegion = useMemo(() => {
     if (!coords) return null;
@@ -212,6 +246,34 @@ export default function ExploreScreen() {
         >
           <Ionicons name="options-outline" size={20} color="#374151" />
         </Pressable>
+      </View>
+      <View style={styles.hobbyCarouselWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.hobbyCarousel}
+        >
+          {hobbies.map((hobby) => {
+            const isSelected = selectedHobby === hobby;
+
+            return (
+              <Pressable
+                key={hobby}
+                onPress={() => setSelectedHobby(hobby)}
+                style={[styles.hobbyChip, isSelected && styles.hobbyChipSelected]}
+              >
+                <Text
+                  style={[
+                    styles.hobbyChipText,
+                    isSelected && styles.hobbyChipTextSelected,
+                  ]}
+                >
+                  {hobby}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {!showMap ? (
@@ -416,6 +478,7 @@ export default function ExploreScreen() {
                   setCreatorFilter('');
                   setUpcomingOnly(false);
                   setHasImageOnly(false);
+                  setSelectedHobby('All');
                 }}
               >
                 <Text style={styles.clearButtonText}>Clear</Text>
@@ -714,5 +777,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#4b5563',
     lineHeight: 22,
+  },
+  hobbyCarouselWrapper: {
+    height: 50,
+    marginBottom: 12,
+    justifyContent: 'center',
+  },
+
+  hobbyCarousel: {
+    paddingHorizontal: 2,
+    alignItems: 'center',
+  },
+
+  hobbyChip: {
+    height: 38,
+    paddingHorizontal: 16,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 20,
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+
+  hobbyChipSelected: {
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
+  },
+
+  hobbyChipText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+
+  hobbyChipTextSelected: {
+    color: '#fff',
   },
 });
