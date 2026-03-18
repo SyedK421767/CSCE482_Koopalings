@@ -5,9 +5,10 @@ import { useAuth } from '@/context/auth-context';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { setIsSignedIn } = useAuth();
+  const { setIsSignedIn, setCurrentUser } = useAuth();
 
   const handleLogout = () => {
+    setCurrentUser(null);
     setIsSignedIn(false);
     router.replace('/');
   };

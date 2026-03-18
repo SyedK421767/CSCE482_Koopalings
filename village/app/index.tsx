@@ -9,7 +9,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setIsSignedIn } = useAuth();
+  const { setIsSignedIn, setCurrentUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -72,6 +72,8 @@ export default function LoginScreen() {
         return;
       }
 
+      const user = await res.json();
+      setCurrentUser(user);
       setIsSignedIn(true);
       router.replace('/(tabs)/home');
     } catch (error) {
