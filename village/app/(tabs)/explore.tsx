@@ -28,6 +28,14 @@ type Post = {
   image_url: string | null;
 };
 
+type EventMarker = {
+  postid: number;
+  title: string;
+  location: string;
+  latitude: number;
+  longitude: number;
+};
+
 export default function ExploreScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
@@ -48,7 +56,7 @@ export default function ExploreScreen() {
   const [hasImageOnly, setHasImageOnly] = useState(false);
 
   //use-states for hardcoded location pins
-  const [eventMarkers, setEventMarkers] = useState<any[]>([]);
+  const [eventMarkers, setEventMarkers] = useState<EventMarker[]>([]);
   const [loadingMarkers, setLoadingMarkers] = useState(false);
 
   //hard-coded hobbies
@@ -124,22 +132,29 @@ export default function ExploreScreen() {
 
     try {
       const results = await Promise.all(
-        posts.map(async (post) => {
+        posts.map(async (post): Promise<EventMarker | null> => {
           if (!post.location?.trim()) return null;
 
           try {
             const geo = await Location.geocodeAsync(post.location);
 
             if (geo.length > 0) {
-              return {
-                postid: post.postid,
-                title: post.title,
-                location: post.location,
-                latitude: geo[0].latitude,
-                longitude: geo[0].longitude,
-              };
+              const { latitude, longitude } = geo[0];
+
+              if (
+                typeof latitude === 'number' &&
+                typeof longitude === 'number'
+              ) {
+                return {
+                  postid: post.postid,
+                  title: post.title,
+                  location: post.location,
+                  latitude,
+                  longitude,
+                };
+              }
             }
-          } catch (err) {
+          } catch {
             console.log('Geocode failed:', post.location);
           }
 
@@ -147,8 +162,7 @@ export default function ExploreScreen() {
         })
       );
 
-      // remove failed ones
-      setEventMarkers(results.filter(Boolean));
+      setEventMarkers(results.filter((marker): marker is EventMarker => marker !== null));
     } catch (err) {
       console.error('Geocoding failed:', err);
     } finally {
@@ -211,6 +225,34 @@ export default function ExploreScreen() {
     selectedHobby,
   ]);
 
+  const filteredEventMarkers = useMemo(() => {
+    const filteredPostIds = new Set(filteredPosts.map((post) => post.postid));
+
+    return eventMarkers.filter(
+      (marker) =>
+        marker &&
+        filteredPostIds.has(marker.postid) &&
+        typeof marker.latitude === 'number' &&
+        typeof marker.longitude === 'number'
+    );
+  }, [eventMarkers, filteredPosts]);
+
+  const mapKey = useMemo(() => {
+    const markerIds = filteredEventMarkers
+      .map((marker) => marker.postid)
+      .sort((a, b) => a - b)
+      .join('-');
+
+    return `${selectedHobby}-${locationFilter}-${creatorFilter}-${upcomingOnly}-${hasImageOnly}-${markerIds}`;
+  }, [
+    filteredEventMarkers,
+    selectedHobby,
+    locationFilter,
+    creatorFilter,
+    upcomingOnly,
+    hasImageOnly,
+  ]);
+
   const mapRegion = useMemo(() => {
     if (!coords) return null;
 
@@ -259,7 +301,11 @@ export default function ExploreScreen() {
             return (
               <Pressable
                 key={hobby}
-                onPress={() => setSelectedHobby(hobby)}
+                onPress={() => {
+                  if (selectedHobby !== hobby) {
+                    setSelectedHobby(hobby);
+                  }
+                }}
                 style={[styles.hobbyChip, isSelected && styles.hobbyChipSelected]}
               >
                 <Text
@@ -323,12 +369,13 @@ export default function ExploreScreen() {
 
           {coords && mapRegion ? (
             <MapView
+              key={mapKey}
               style={styles.map}
               initialRegion={mapRegion}
-              region={mapRegion}
               showsUserLocation
             >
               <Marker
+                tracksViewChanges={false}
                 coordinate={{
                   latitude: coords.latitude,
                   longitude: coords.longitude,
@@ -346,22 +393,32 @@ export default function ExploreScreen() {
                 fillColor="rgba(59, 130, 246, 0.2)"
               />
 
-              {eventMarkers.map((marker) => (
-                <Marker
-                  key={marker.postid}
-                  coordinate={{
-                    latitude: marker.latitude,
-                    longitude: marker.longitude,
-                  }}
-                  title={marker.title}
-                  description={marker.location}
-                  pinColor="red"
-                  onPress={() => {
-                    const selected = posts.find((p) => p.postid === marker.postid) || null;
-                    setSelectedPost(selected);
-                  }}
-                />
-              ))}
+              {filteredEventMarkers.map((marker) => {
+                if (
+                  typeof marker.latitude !== 'number' ||
+                  typeof marker.longitude !== 'number'
+                ) {
+                  return null;
+                }
+
+                return (
+                  <Marker
+                    key={marker.postid}
+                    tracksViewChanges={false}
+                    coordinate={{
+                      latitude: marker.latitude,
+                      longitude: marker.longitude,
+                    }}
+                    title={marker.title}
+                    description={marker.location}
+                    pinColor="red"
+                    onPress={() => {
+                      const selected = posts.find((p) => p.postid === marker.postid) || null;
+                      setSelectedPost(selected);
+                    }}
+                  />
+                );
+              })}
             </MapView>
           ) : (
             <Text style={styles.caption}>
