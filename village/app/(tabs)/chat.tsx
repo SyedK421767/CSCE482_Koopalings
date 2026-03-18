@@ -29,8 +29,10 @@ type Conversation = {
   first_name: string;
   last_name: string;
   email: string;
+  last_senderid?: number;
   last_message?: string;
   last_message_at?: string;
+  unread_count: number;
 };
 
 type ChatMessage = {
@@ -39,6 +41,7 @@ type ChatMessage = {
   senderid: number;
   content: string;
   sent_at: string;
+  read_at: string | null;
   first_name: string;
   last_name: string;
 };
@@ -46,7 +49,8 @@ type ChatMessage = {
 type IncomingSocketEvent =
   | { type: 'identified'; userId: number }
   | { type: 'conversation_started'; conversationId: number; userIds: number[] }
-  | { type: 'new_message'; conversationId: number; message: ChatMessage };
+  | { type: 'new_message'; conversationId: number; message: ChatMessage }
+  | { type: 'conversation_read'; conversationId: number; readerId: number; readAt: string };
 
 function mergeMessage(existing: ChatMessage[], next: ChatMessage): ChatMessage[] {
   if (existing.some((msg) => msg.messageid === next.messageid)) {
@@ -57,6 +61,13 @@ function mergeMessage(existing: ChatMessage[], next: ChatMessage): ChatMessage[]
 
 function formatName(first: string, last: string) {
   return `${first ?? ''} ${last ?? ''}`.trim();
+}
+
+function formatReceiptTime(value: string) {
+  return new Date(value).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 export default function ChatScreen() {
@@ -79,15 +90,24 @@ export default function ChatScreen() {
     selectedConversationRef.current = selectedConversationId;
   }, [selectedConversationId]);
 
+  const selectedConversation = useMemo(
+    () => conversations.find((conversation) => conversation.conversationid === selectedConversationId) ?? null,
+    [conversations, selectedConversationId]
+  );
+
   const loadUsers = useCallback(async () => {
     if (!userId) return;
     try {
       const res = await fetch(`${API_URL}/chat/users?excludeUserId=${userId}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        Alert.alert('Error', 'Could not load users for chat.');
+        return;
+      }
       const data = (await res.json()) as ChatUser[];
       setUsers(data);
     } catch (err) {
       console.error('Failed to load chat users:', err);
+      Alert.alert('Error', 'Could not load users for chat.');
     }
   }, [userId]);
 
@@ -96,7 +116,10 @@ export default function ChatScreen() {
     try {
       setLoadingConversations(true);
       const res = await fetch(`${API_URL}/chat/conversations/user/${userId}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        Alert.alert('Error', 'Could not load conversations.');
+        return;
+      }
       const data = (await res.json()) as Conversation[];
       setConversations(data);
 
@@ -106,33 +129,50 @@ export default function ChatScreen() {
       }
     } catch (err) {
       console.error('Failed to load conversations:', err);
+      Alert.alert('Error', 'Could not load conversations.');
     } finally {
       setLoadingConversations(false);
     }
   }, [userId]);
 
-  const loadMessages = useCallback(async (conversationId: number) => {
-    try {
-      setLoadingMessages(true);
-      const res = await fetch(`${API_URL}/chat/conversations/${conversationId}/messages`);
-      if (!res.ok) {
-        Alert.alert('Error', 'Could not load messages.');
-        return;
+  const markConversationRead = useCallback(
+    async (conversationId: number) => {
+      if (!userId) return;
+      try {
+        await fetch(`${API_URL}/chat/conversations/${conversationId}/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId }),
+        });
+      } catch (err) {
+        console.error('Failed to mark read:', err);
       }
-      const data = (await res.json()) as ChatMessage[];
-      setMessages(data);
-      setSelectedConversationId(conversationId);
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-      Alert.alert('Error', 'Could not load messages.');
-    } finally {
-      setLoadingMessages(false);
-    }
-  }, []);
+    },
+    [userId]
+  );
 
-  const selectedConversation = useMemo(
-    () => conversations.find((conversation) => conversation.conversationid === selectedConversationId) ?? null,
-    [conversations, selectedConversationId]
+  const loadMessages = useCallback(
+    async (conversationId: number) => {
+      try {
+        setLoadingMessages(true);
+        const res = await fetch(`${API_URL}/chat/conversations/${conversationId}/messages`);
+        if (!res.ok) {
+          Alert.alert('Error', 'Could not load messages.');
+          return;
+        }
+        const data = (await res.json()) as ChatMessage[];
+        setMessages(data);
+        setSelectedConversationId(conversationId);
+        await markConversationRead(conversationId);
+        void loadConversations();
+      } catch (err) {
+        console.error('Failed to load messages:', err);
+        Alert.alert('Error', 'Could not load messages.');
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    [loadConversations, markConversationRead]
   );
 
   useEffect(() => {
@@ -157,12 +197,33 @@ export default function ChatScreen() {
         if (payload.type === 'new_message') {
           if (payload.conversationId === selectedConversationRef.current) {
             setMessages((prev) => mergeMessage(prev, payload.message));
+            if (payload.message.senderid !== userId) {
+              void markConversationRead(payload.conversationId);
+            }
           }
           void loadConversations();
           return;
         }
 
         if (payload.type === 'conversation_started') {
+          void loadConversations();
+          return;
+        }
+
+        if (payload.type === 'conversation_read' && payload.readerId !== userId) {
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.senderid !== userId || msg.read_at) {
+                return msg;
+              }
+
+              if (new Date(msg.sent_at).getTime() <= new Date(payload.readAt).getTime()) {
+                return { ...msg, read_at: payload.readAt };
+              }
+
+              return msg;
+            })
+          );
           void loadConversations();
         }
       } catch (err) {
@@ -177,7 +238,7 @@ export default function ChatScreen() {
     return () => {
       socket.close();
     };
-  }, [userId, loadConversations]);
+  }, [userId, loadConversations, markConversationRead]);
 
   const handleStartConversation = async (otherUserId: number) => {
     if (!userId) return;
@@ -248,101 +309,117 @@ export default function ChatScreen() {
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Chats</Text>
-        <Pressable style={styles.newChatButton} onPress={() => setShowUsersModal(true)}>
-          <Text style={styles.newChatButtonText}>New Chat</Text>
-        </Pressable>
-      </View>
-
+  const renderList = () => (
+    <>
       {loadingConversations ? (
         <ActivityIndicator color="#111827" style={styles.loadingConversations} />
       ) : (
         <FlatList
           data={conversations}
           keyExtractor={(item) => item.conversationid.toString()}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.conversationList}
-          renderItem={({ item }) => {
-            const isSelected = item.conversationid === selectedConversationId;
-            return (
-              <Pressable
-                style={[styles.conversationCard, isSelected && styles.conversationCardSelected]}
-                onPress={() => {
-                  void loadMessages(item.conversationid);
-                }}
-              >
-                <Text style={styles.conversationName} numberOfLines={1}>
+          contentContainerStyle={styles.chatList}
+          renderItem={({ item }) => (
+            <Pressable
+              style={styles.chatRow}
+              onPress={() => {
+                void loadMessages(item.conversationid);
+              }}
+            >
+              <View style={styles.chatTextWrap}>
+                <Text style={styles.chatName}>
                   {formatName(item.first_name, item.last_name) || item.email}
                 </Text>
-                <Text style={styles.conversationPreview} numberOfLines={1}>
+                <Text style={styles.chatPreview} numberOfLines={1}>
                   {item.last_message || 'No messages yet'}
                 </Text>
-              </Pressable>
-            );
-          }}
+              </View>
+              {item.unread_count > 0 && <View style={styles.unreadDot} />}
+            </Pressable>
+          )}
           ListEmptyComponent={
-            <View style={styles.emptyConversationsCard}>
-              <Text style={styles.emptyConversationsText}>No conversations yet. Tap New Chat.</Text>
+            <View style={styles.emptyListCard}>
+              <Text style={styles.emptyListText}>No chats yet. Tap New Chat.</Text>
             </View>
           }
         />
       )}
+    </>
+  );
 
-      <View style={styles.threadContainer}>
-        {selectedConversation ? (
-          <>
-            <Text style={styles.threadTitle}>
-              {formatName(selectedConversation.first_name, selectedConversation.last_name) ||
-                selectedConversation.email}
-            </Text>
+  const renderThread = () => (
+    <View style={styles.threadContainer}>
+      <View style={styles.threadHeader}>
+        <Pressable
+          onPress={() => {
+            setSelectedConversationId(null);
+            setMessages([]);
+          }}
+        >
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+        <Text style={styles.threadTitle}>
+          {selectedConversation
+            ? formatName(selectedConversation.first_name, selectedConversation.last_name) ||
+              selectedConversation.email
+            : 'Chat'}
+        </Text>
+      </View>
 
-            {loadingMessages ? (
-              <ActivityIndicator color="#111827" style={styles.loadingMessages} />
-            ) : (
-              <FlatList
-                data={messages}
-                keyExtractor={(item) => item.messageid.toString()}
-                contentContainerStyle={styles.messageList}
-                renderItem={({ item }) => {
-                  const isMine = item.senderid === userId;
-                  return (
-                    <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
-                      <Text style={styles.messageSender}>{formatName(item.first_name, item.last_name)}</Text>
-                      <Text style={styles.messageBody}>{item.content}</Text>
-                    </View>
-                  );
-                }}
-                ListEmptyComponent={<Text style={styles.emptyMessages}>No messages yet.</Text>}
-              />
-            )}
+      {loadingMessages ? (
+        <ActivityIndicator color="#111827" style={styles.loadingMessages} />
+      ) : (
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.messageid.toString()}
+          contentContainerStyle={styles.messageList}
+          renderItem={({ item }) => {
+            const isMine = item.senderid === userId;
+            return (
+              <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
+                <Text style={styles.messageSender}>{formatName(item.first_name, item.last_name)}</Text>
+                <Text style={styles.messageBody}>{item.content}</Text>
+                {isMine && (
+                  <Text style={styles.readReceipt}>
+                    {item.read_at ? `Read ${formatReceiptTime(item.read_at)}` : 'Sent'}
+                  </Text>
+                )}
+              </View>
+            );
+          }}
+          ListEmptyComponent={<Text style={styles.emptyMessages}>No messages yet.</Text>}
+        />
+      )}
 
-            <View style={styles.composerRow}>
-              <TextInput
-                value={draft}
-                onChangeText={setDraft}
-                placeholder="Type a message"
-                style={styles.composerInput}
-              />
-              <Pressable
-                style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-                onPress={handleSend}
-                disabled={sending}
-              >
-                <Text style={styles.sendButtonText}>{sending ? '...' : 'Send'}</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : (
-          <View style={styles.centeredContainer}>
-            <Text style={styles.emptyTitle}>Pick a chat</Text>
-            <Text style={styles.emptySubtitle}>Select a conversation or start a new one.</Text>
-          </View>
+      <View style={styles.composerRow}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Type a message"
+          style={styles.composerInput}
+        />
+        <Pressable
+          style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+          onPress={handleSend}
+          disabled={sending}
+        >
+          <Text style={styles.sendButtonText}>{sending ? '...' : 'Send'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Chat</Text>
+        {!selectedConversationId && (
+          <Pressable style={styles.newChatButton} onPress={() => setShowUsersModal(true)}>
+            <Text style={styles.newChatButtonText}>New Chat</Text>
+          </Pressable>
         )}
       </View>
+
+      {selectedConversationId ? renderThread() : renderList()}
 
       <Modal visible={showUsersModal} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={() => setShowUsersModal(false)}>
@@ -379,18 +456,18 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#fff',
     paddingTop: 56,
+    paddingHorizontal: 16,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
     marginBottom: 12,
   },
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '700',
     color: '#111827',
   },
@@ -406,73 +483,85 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   loadingConversations: {
-    marginVertical: 12,
+    marginVertical: 20,
   },
-  conversationList: {
-    paddingHorizontal: 12,
+  chatList: {
     gap: 10,
-    paddingBottom: 8,
+    paddingBottom: 20,
   },
-  conversationCard: {
-    width: 190,
-    backgroundColor: '#fff',
+  chatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 4,
+    borderRadius: 12,
+    backgroundColor: '#f9fafb',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  conversationCardSelected: {
-    borderColor: '#111827',
-    backgroundColor: '#f3f4f6',
+  chatTextWrap: {
+    flex: 1,
+    marginRight: 10,
   },
-  conversationName: {
-    fontSize: 14,
+  chatName: {
+    fontSize: 15,
     fontWeight: '700',
     color: '#111827',
+    marginBottom: 3,
   },
-  conversationPreview: {
-    fontSize: 13,
+  chatPreview: {
+    fontSize: 14,
     color: '#6b7280',
   },
-  emptyConversationsCard: {
-    backgroundColor: '#fff',
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#2563eb',
+  },
+  emptyListCard: {
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    backgroundColor: '#fff',
   },
-  emptyConversationsText: {
+  emptyListText: {
     color: '#6b7280',
     fontSize: 14,
   },
   threadContainer: {
     flex: 1,
-    marginTop: 8,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderBottomWidth: 0,
-    paddingTop: 12,
-    paddingHorizontal: 12,
-    paddingBottom: 10,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    padding: 10,
+  },
+  threadHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  backText: {
+    color: '#2563eb',
+    fontWeight: '600',
+    fontSize: 14,
   },
   threadTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 8,
   },
   loadingMessages: {
-    marginTop: 24,
+    marginTop: 20,
   },
   messageList: {
-    paddingBottom: 12,
     gap: 8,
+    paddingBottom: 10,
   },
   messageBubble: {
     borderRadius: 12,
@@ -497,6 +586,13 @@ const styles = StyleSheet.create({
   messageBody: {
     fontSize: 15,
     color: '#111827',
+  },
+  readReceipt: {
+    marginTop: 3,
+    alignSelf: 'flex-end',
+    fontSize: 11,
+    color: '#1d4ed8',
+    fontWeight: '600',
   },
   composerRow: {
     flexDirection: 'row',
@@ -534,8 +630,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
     gap: 6,
+    paddingHorizontal: 20,
   },
   emptyTitle: {
     fontSize: 20,
