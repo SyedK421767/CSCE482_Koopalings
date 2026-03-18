@@ -7,7 +7,7 @@ const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { setIsSignedIn } = useAuth();
+  const { setIsSignedIn, setCurrentUser } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -49,8 +49,9 @@ export default function RegisterScreen() {
       }
 
       const user = await res.json();
-      console.log('Created user:', user); // should have userid from DB
+      console.log('Created user:', user);
 
+      setCurrentUser(user);
       setIsSignedIn(true);
       router.replace('/(tabs)/home');
     } catch (e) {
