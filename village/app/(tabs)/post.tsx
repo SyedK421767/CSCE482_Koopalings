@@ -17,10 +17,18 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import * as ImagePicker from 'expo-image-picker';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 interface Tag {
   tagid: number;
   name: string;
+}
+
+interface PlaceSuggestion {
+  placeId: string;
+  primaryText: string;
+  secondaryText: string;
+  fullText: string;
 }
 
 export default function PostScreen() {
@@ -37,6 +45,9 @@ export default function PostScreen() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
   const [showTagModal, setShowTagModal] = useState(false);
+  const [locationSuggestions, setLocationSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [isLocationFocused, setIsLocationFocused] = useState(false);
+  const [searchingPlaces, setSearchingPlaces] = useState(false);
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -52,6 +63,78 @@ export default function PostScreen() {
   }, []);
 
   const selectedTagName = tags.find((t) => t.tagid === selectedTagId)?.name;
+
+  useEffect(() => {
+    if (!isLocationFocused) {
+      return;
+    }
+
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress || !GOOGLE_PLACES_API_KEY) {
+      setLocationSuggestions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(async () => {
+      try {
+        setSearchingPlaces(true);
+        const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
+            'X-Goog-FieldMask':
+              'suggestions.placePrediction.placeId,suggestions.placePrediction.text.text',
+          },
+          body: JSON.stringify({
+            input: trimmedAddress,
+            regionCode: 'US',
+            languageCode: 'en',
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          setLocationSuggestions([]);
+          return;
+        }
+
+        const data = await response.json();
+        const suggestions: PlaceSuggestion[] = (data?.suggestions ?? [])
+          .map((entry: any) => {
+            const prediction = entry?.placePrediction;
+            const fullText = prediction?.text?.text ?? '';
+            if (!prediction?.placeId || !fullText) return null;
+
+            const parts = fullText.split(',');
+            const primaryText = parts[0]?.trim() ?? fullText;
+            const secondaryText = parts.slice(1).join(',').trim();
+
+            return {
+              placeId: prediction.placeId,
+              primaryText,
+              secondaryText,
+              fullText,
+            };
+          })
+          .filter(Boolean);
+
+        setLocationSuggestions(suggestions);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          setLocationSuggestions([]);
+        }
+      } finally {
+        setSearchingPlaces(false);
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [address, isLocationFocused]);
 
   const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') setShowDatePicker(false);
@@ -143,6 +226,7 @@ export default function PostScreen() {
       setTitle('');
       setDescription('');
       setAddress('');
+      setLocationSuggestions([]);
       setDate(new Date());
       setTime(new Date());
       setImage(null);
@@ -190,13 +274,51 @@ export default function PostScreen() {
           textAlignVertical="top"
         />
 
-        <TextInput
-          value={address}
-          onChangeText={setAddress}
-          placeholder="Address / Location"
-          placeholderTextColor="#9ca3af"
-          style={styles.input}
-        />
+        <View style={styles.locationGroup}>
+          <Text style={styles.locationTitle}>Where&apos;s it happening?</Text>
+          <Text style={styles.locationSubtitle}>Search venue, street, or neighborhood</Text>
+          <TextInput
+            value={address}
+            onChangeText={setAddress}
+            onFocus={() => setIsLocationFocused(true)}
+            onBlur={() => {
+              setTimeout(() => setIsLocationFocused(false), 180);
+            }}
+            placeholder="Start typing an address..."
+            placeholderTextColor="#9ca3af"
+            style={styles.input}
+          />
+          {!GOOGLE_PLACES_API_KEY && (
+            <Text style={styles.locationHint}>Set EXPO_PUBLIC_GOOGLE_PLACES_API_KEY to enable autocomplete.</Text>
+          )}
+          {isLocationFocused && (searchingPlaces || locationSuggestions.length > 0) && (
+            <View style={styles.suggestionsCard}>
+              {searchingPlaces ? (
+                <View style={styles.suggestionLoading}>
+                  <ActivityIndicator size="small" color="#111827" />
+                  <Text style={styles.suggestionLoadingText}>Finding places...</Text>
+                </View>
+              ) : (
+                locationSuggestions.map((suggestion) => (
+                  <Pressable
+                    key={suggestion.placeId}
+                    style={styles.suggestionRow}
+                    onPress={() => {
+                      setAddress(suggestion.fullText);
+                      setLocationSuggestions([]);
+                      setIsLocationFocused(false);
+                    }}
+                  >
+                    <Text style={styles.suggestionPrimary}>{suggestion.primaryText}</Text>
+                    {!!suggestion.secondaryText && (
+                      <Text style={styles.suggestionSecondary}>{suggestion.secondaryText}</Text>
+                    )}
+                  </Pressable>
+                ))
+              )}
+            </View>
+          )}
+        </View>
 
         {/* Tag selector */}
         <Pressable style={styles.pickerButton} onPress={() => setShowTagModal(true)}>
@@ -311,6 +433,24 @@ const styles = StyleSheet.create({
   form: {
     gap: 10,
   },
+  locationGroup: {
+    gap: 6,
+    marginBottom: 2,
+  },
+  locationTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  locationSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 2,
+  },
+  locationHint: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
   input: {
     borderWidth: 1,
     borderColor: '#d1d5db',
@@ -320,6 +460,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: '#fff',
     color: '#111827',
+  },
+  suggestionsCard: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  suggestionLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  suggestionLoadingText: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  suggestionRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+    gap: 2,
+  },
+  suggestionPrimary: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  suggestionSecondary: {
+    fontSize: 13,
+    color: '#6b7280',
   },
   textArea: {
     height: 100,
