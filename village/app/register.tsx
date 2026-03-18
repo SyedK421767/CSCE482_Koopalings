@@ -1,23 +1,24 @@
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { setIsSignedIn } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const handleCreateAccount = async () => {
       console.log('Using API_URL:', API_URL);
 
-    const fields = [firstName, lastName, phoneNumber, email, username, password];
+    const fields = [firstName, lastName, phoneNumber, email, password];
     const hasEmptyField = fields.some((field) => field.trim().length === 0);
 
     if (hasEmptyField) {
@@ -36,7 +37,6 @@ export default function RegisterScreen() {
           last_name: lastName.trim(),
           phone_number: phoneNumber.trim(),
           email: email.trim().toLowerCase(),
-          username: username.trim(),
           password: password,
         }),
       });
@@ -51,9 +51,8 @@ export default function RegisterScreen() {
       const user = await res.json();
       console.log('Created user:', user); // should have userid from DB
 
-      Alert.alert('Account created', 'Your account has been created successfully.', [
-        { text: 'OK', onPress: () => router.replace('/') },
-      ]);
+      setIsSignedIn(true);
+      router.replace('/(tabs)/home');
     } catch (e) {
       console.error('Network error:', e);
       Alert.alert('Error', 'Network error. Try again.');
@@ -95,17 +94,11 @@ export default function RegisterScreen() {
         style={styles.input}
       />
       <TextInput
-        value={username}
-        onChangeText={setUsername}
-        placeholder="Username"
-        autoCapitalize="none"
-        style={styles.input}
-      />
-      <TextInput
         value={password}
         onChangeText={setPassword}
         placeholder="Password"
         autoCapitalize="none"
+        secureTextEntry
         style={styles.input}
       />
       <Pressable style={styles.button} onPress={handleCreateAccount} disabled={submitting}>

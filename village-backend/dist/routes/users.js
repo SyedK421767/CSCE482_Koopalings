@@ -6,11 +6,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const db_1 = __importDefault(require("../db"));
 const router = (0, express_1.Router)();
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // GET all users
 router.get('/', async (req, res) => {
     try {
         const result = await db_1.default.query(`
-      SELECT userid, first_name, last_name, phone_number, email, username, type
+      SELECT userid, first_name, last_name, phone_number, email, type
       FROM users
       ORDER BY userid DESC
     `);
@@ -21,27 +22,65 @@ router.get('/', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch users' });
     }
 });
+// POST log in user
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    const normalizedEmail = String(email ?? '').trim();
+    const normalizedPassword = String(password ?? '');
+    if (!normalizedEmail && !normalizedPassword) {
+        return res.status(400).json({ error: 'Please enter your email and password' });
+    }
+    if (!normalizedEmail) {
+        return res.status(400).json({ error: 'Email is required' });
+    }
+    if (!normalizedPassword) {
+        return res.status(400).json({ error: 'Password is required' });
+    }
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+        return res.status(400).json({ error: 'Please enter a valid email address' });
+    }
+    try {
+        const result = await db_1.default.query(`
+      SELECT userid, first_name, last_name, phone_number, email, type, password
+      FROM users
+      WHERE LOWER(email) = LOWER($1)
+      LIMIT 1
+      `, [normalizedEmail]);
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'Incorrect credentials' });
+        }
+        const user = result.rows[0];
+        if (user.password !== normalizedPassword) {
+            return res.status(401).json({ error: 'Incorrect credentials' });
+        }
+        const { password: _password, ...safeUser } = user;
+        return res.json(safeUser);
+    }
+    catch (err) {
+        console.error('Failed to log in:', err);
+        return res.status(500).json({ error: 'Failed to log in' });
+    }
+});
 // POST create a new user
 router.post('/', async (req, res) => {
-    const { first_name, last_name, phone_number, email, username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: 'Username and password required' });
+    const { first_name, last_name, phone_number, email, password } = req.body;
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password required' });
     }
-    const type = 'regular'; // <- hardcoded cleanly
+    const type = 'regular';
     try {
         const result = await db_1.default.query(`
       INSERT INTO users (
         type,
-        username,
         password,
         phone_number,
         email,
         first_name,
         last_name
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      VALUES ($1,$2,$3,$4,$5,$6)
       RETURNING *
-      `, [type, username, password, phone_number, email, first_name, last_name]);
+      `, [type, password, phone_number, email, first_name, last_name]);
         res.status(201).json(result.rows[0]);
     }
     catch (err) {

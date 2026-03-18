@@ -10,10 +10,9 @@ const router = (0, express_1.Router)();
 router.get('/', async (req, res) => {
     try {
         const result = await db_1.default.query(`
-      SELECT p.PostID, p.Title, u.Username
+      SELECT p.PostID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL
       FROM Posts p
-      JOIN Users u ON p.UserID = u.UserID
-      ORDER BY p.DateAndTime DESC
+      ORDER BY p.DateAndTime DESC 
     `);
         res.json(result.rows);
     }
@@ -24,11 +23,11 @@ router.get('/', async (req, res) => {
 });
 // POST a new post
 router.post('/', async (req, res) => {
-    const { userID, title, description, location } = req.body;
+    const { userID, displayname, title, description, location, address, start_time, dateandtime, image_url } = req.body;
     try {
-        const result = await db_1.default.query(`INSERT INTO Posts (UserID, Title, Description, Location, DateAndTime)
-       VALUES ($1, $2, $3, $4, NOW())
-       RETURNING *`, [userID, title, description, location]);
+        const result = await db_1.default.query(`INSERT INTO Posts (UserID, DisplayName, Title, Description, Location, Address, Start_Time, DateAndTime, Image_URL)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`, [userID, displayname, title, description, location, address, start_time, dateandtime, image_url]);
         res.status(201).json(result.rows[0]);
     }
     catch (err) {
