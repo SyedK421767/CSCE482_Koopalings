@@ -21,6 +21,14 @@ function parseId(value: unknown): number | null {
   return num;
 }
 
+async function getConversationParticipantIds(conversationId: number): Promise<number[]> {
+  const participants = await pool.query<{ userid: number }>(
+    'SELECT userid FROM conversation_participants WHERE conversationid = $1',
+    [conversationId]
+  );
+  return participants.rows.map((row) => row.userid);
+}
+
 router.get('/users', async (req: Request, res: Response) => {
   const excludeUserId = parseId(req.query.excludeUserId);
 
@@ -148,6 +156,7 @@ router.get('/conversations/user/:userId', async (req: Request, res: Response) =>
           AND um.senderid <> $1
           AND um.read_at IS NULL
       ) unread ON TRUE
+      WHERE m.messageid IS NOT NULL
       ORDER BY COALESCE(m.sent_at, c.created_at) DESC
       `,
       [userId]
@@ -228,21 +237,14 @@ router.post('/messages', async (req: Request, res: Response) => {
       [conversationId, senderId, content]
     );
 
-    const participants = await pool.query<{ userid: number }>(
-      'SELECT userid FROM conversation_participants WHERE conversationid = $1',
-      [conversationId]
-    );
-
     const message = inserted.rows[0];
+    const participantIds = await getConversationParticipantIds(conversationId);
 
-    notifyUsers(
-      participants.rows.map((row) => row.userid),
-      {
-        type: 'new_message',
-        conversationId,
-        message,
-      }
-    );
+    notifyUsers(participantIds, {
+      type: 'new_message',
+      conversationId,
+      message,
+    });
 
     return res.status(201).json(message);
   } catch (err) {
@@ -274,25 +276,166 @@ router.post('/conversations/:conversationId/read', async (req: Request, res: Res
       [conversationId, userId, readAt]
     );
 
-    const participants = await pool.query<{ userid: number }>(
-      'SELECT userid FROM conversation_participants WHERE conversationid = $1',
-      [conversationId]
-    );
+    const participantIds = await getConversationParticipantIds(conversationId);
 
-    notifyUsers(
-      participants.rows.map((row) => row.userid),
-      {
-        type: 'conversation_read',
-        conversationId,
-        readerId: userId,
-        readAt,
-      }
-    );
+    notifyUsers(participantIds, {
+      type: 'conversation_read',
+      conversationId,
+      readerId: userId,
+      readAt,
+    });
 
     return res.json({ success: true, readAt });
   } catch (err) {
     console.error('Failed to mark conversation as read:', err);
     return res.status(500).json({ error: 'Failed to mark conversation as read' });
+  }
+});
+
+router.patch('/messages/:messageId', async (req: Request, res: Response) => {
+  const messageId = parseId(req.params.messageId);
+  const userId = parseId(req.body.userId);
+  const content = String(req.body.content ?? '').trim();
+
+  if (!messageId || !userId || !content) {
+    return res.status(400).json({ error: 'Valid message ID, user ID, and content are required' });
+  }
+
+  try {
+    const existing = await pool.query<{ conversationid: number; senderid: number }>(
+      `
+      SELECT conversationid, senderid
+      FROM messages
+      WHERE messageid = $1
+      LIMIT 1
+      `,
+      [messageId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    const messageMeta = existing.rows[0];
+    if (!messageMeta) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    if (messageMeta.senderid !== userId) {
+      return res.status(403).json({ error: 'You can only edit your own messages' });
+    }
+
+    const updated = await pool.query<ChatMessageRow>(
+      `
+      UPDATE messages
+      SET content = $2
+      WHERE messageid = $1
+      RETURNING messageid, conversationid, senderid, content, sent_at, read_at,
+        (SELECT first_name FROM users WHERE userid = senderid) AS first_name,
+        (SELECT last_name FROM users WHERE userid = senderid) AS last_name
+      `,
+      [messageId, content]
+    );
+
+    const message = updated.rows[0];
+    const participantIds = await getConversationParticipantIds(messageMeta.conversationid);
+
+    notifyUsers(participantIds, {
+      type: 'message_updated',
+      conversationId: messageMeta.conversationid,
+      message,
+    });
+
+    return res.json(message);
+  } catch (err) {
+    console.error('Failed to edit message:', err);
+    return res.status(500).json({ error: 'Failed to edit message' });
+  }
+});
+
+router.delete('/messages/:messageId', async (req: Request, res: Response) => {
+  const messageId = parseId(req.params.messageId);
+  const userId = parseId(req.body.userId);
+
+  if (!messageId || !userId) {
+    return res.status(400).json({ error: 'Valid message ID and user ID are required' });
+  }
+
+  try {
+    const existing = await pool.query<{ conversationid: number; senderid: number }>(
+      `
+      SELECT conversationid, senderid
+      FROM messages
+      WHERE messageid = $1
+      LIMIT 1
+      `,
+      [messageId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    const messageMeta = existing.rows[0];
+    if (!messageMeta) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    if (messageMeta.senderid !== userId) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+
+    await pool.query('DELETE FROM messages WHERE messageid = $1', [messageId]);
+    const participantIds = await getConversationParticipantIds(messageMeta.conversationid);
+
+    notifyUsers(participantIds, {
+      type: 'message_deleted',
+      conversationId: messageMeta.conversationid,
+      messageId,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete message:', err);
+    return res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+router.delete('/conversations/:conversationId', async (req: Request, res: Response) => {
+  const conversationId = parseId(req.params.conversationId);
+  const userId = parseId(req.body.userId);
+
+  if (!conversationId || !userId) {
+    return res.status(400).json({ error: 'Valid conversation ID and user ID are required' });
+  }
+
+  try {
+    const membership = await pool.query(
+      `
+      SELECT 1
+      FROM conversation_participants
+      WHERE conversationid = $1 AND userid = $2
+      LIMIT 1
+      `,
+      [conversationId, userId]
+    );
+
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'User is not in this conversation' });
+    }
+
+    const participantIds = await getConversationParticipantIds(conversationId);
+
+    await pool.query('DELETE FROM conversations WHERE conversationid = $1', [conversationId]);
+
+    notifyUsers(participantIds, {
+      type: 'conversation_deleted',
+      conversationId,
+      deletedBy: userId,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete conversation:', err);
+    return res.status(500).json({ error: 'Failed to delete conversation' });
   }
 });
 
