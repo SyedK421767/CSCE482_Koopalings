@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '@/context/auth-context';
 
@@ -12,6 +13,7 @@ export default function LoginScreen() {
   const { setIsSignedIn, setCurrentUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const handleSignIn = async () => {
@@ -95,13 +97,22 @@ export default function LoginScreen() {
         autoCapitalize="none"
         style={styles.input}
       />
-      <TextInput
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Password"
-        secureTextEntry
-        style={styles.input}
-      />
+      <View style={styles.passwordRow}>
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Password"
+          secureTextEntry={!showPassword}
+          style={styles.passwordInput}
+        />
+        <Pressable
+          onPress={() => setShowPassword((prev) => !prev)}
+          style={styles.eyeButton}
+          hitSlop={8}
+        >
+          <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#6b7280" />
+        </Pressable>
+      </View>
       <Pressable style={styles.button} onPress={handleSignIn} disabled={submitting}>
         <Text style={styles.buttonText}>{submitting ? 'Signing In...' : 'Sign In'}</Text>
       </Pressable>
@@ -134,6 +145,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
+  },
+  passwordRow: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+    paddingRight: 8,
+    backgroundColor: '#fff',
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: '#111827',
+  },
+  eyeButton: {
+    padding: 4,
   },
   button: {
     marginTop: 8,
