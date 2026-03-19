@@ -50,7 +50,10 @@ type IncomingSocketEvent =
   | { type: 'identified'; userId: number }
   | { type: 'conversation_started'; conversationId: number; userIds: number[] }
   | { type: 'new_message'; conversationId: number; message: ChatMessage }
-  | { type: 'conversation_read'; conversationId: number; readerId: number; readAt: string };
+  | { type: 'conversation_read'; conversationId: number; readerId: number; readAt: string }
+  | { type: 'message_updated'; conversationId: number; message: ChatMessage }
+  | { type: 'message_deleted'; conversationId: number; messageId: number }
+  | { type: 'conversation_deleted'; conversationId: number; deletedBy: number };
 
 function mergeMessage(existing: ChatMessage[], next: ChatMessage): ChatMessage[] {
   if (existing.some((msg) => msg.messageid === next.messageid)) {
@@ -70,6 +73,10 @@ function formatReceiptTime(value: string) {
   });
 }
 
+function includesQuery(source: string | null | undefined, query: string) {
+  return String(source ?? '').toLowerCase().includes(query.toLowerCase());
+}
+
 export default function ChatScreen() {
   const { currentUser } = useAuth();
   const userId = currentUser?.userid ?? null;
@@ -79,6 +86,11 @@ export default function ChatScreen() {
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [isSelectingChats, setIsSelectingChats] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState<number[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
@@ -94,6 +106,30 @@ export default function ChatScreen() {
     () => conversations.find((conversation) => conversation.conversationid === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
+
+  const filteredConversations = useMemo(() => {
+    const query = chatSearch.trim();
+    if (!query) return conversations;
+
+    return conversations.filter((conversation) => {
+      const name = `${conversation.first_name} ${conversation.last_name}`;
+      return (
+        includesQuery(name, query) ||
+        includesQuery(conversation.email ?? '', query) ||
+        includesQuery(conversation.last_message ?? '', query)
+      );
+    });
+  }, [conversations, chatSearch]);
+
+  const filteredUsers = useMemo(() => {
+    const query = userSearch.trim();
+    if (!query) return users;
+
+    return users.filter((user) => {
+      const name = `${user.first_name} ${user.last_name}`;
+      return includesQuery(name, query) || includesQuery(user.email, query);
+    });
+  }, [users, userSearch]);
 
   const loadUsers = useCallback(async () => {
     if (!userId) return;
@@ -163,6 +199,8 @@ export default function ChatScreen() {
         const data = (await res.json()) as ChatMessage[];
         setMessages(data);
         setSelectedConversationId(conversationId);
+        setEditingMessageId(null);
+        setDraft('');
         await markConversationRead(conversationId);
         void loadConversations();
       } catch (err) {
@@ -200,6 +238,33 @@ export default function ChatScreen() {
             if (payload.message.senderid !== userId) {
               void markConversationRead(payload.conversationId);
             }
+          }
+          void loadConversations();
+          return;
+        }
+
+        if (payload.type === 'message_updated') {
+          if (payload.conversationId === selectedConversationRef.current) {
+            setMessages((prev) =>
+              prev.map((msg) => (msg.messageid === payload.message.messageid ? payload.message : msg))
+            );
+          }
+          void loadConversations();
+          return;
+        }
+
+        if (payload.type === 'message_deleted') {
+          if (payload.conversationId === selectedConversationRef.current) {
+            setMessages((prev) => prev.filter((msg) => msg.messageid !== payload.messageId));
+          }
+          void loadConversations();
+          return;
+        }
+
+        if (payload.type === 'conversation_deleted') {
+          if (payload.conversationId === selectedConversationRef.current) {
+            setSelectedConversationId(null);
+            setMessages([]);
           }
           void loadConversations();
           return;
@@ -257,11 +322,75 @@ export default function ChatScreen() {
 
       const data = (await res.json()) as { conversationId: number };
       setShowUsersModal(false);
+      setUserSearch('');
       await loadConversations();
       await loadMessages(data.conversationId);
     } catch (err) {
       console.error('Failed to start conversation:', err);
       Alert.alert('Error', 'Could not start conversation.');
+    }
+  };
+
+  const handleBulkDeleteConversations = async () => {
+    if (!userId || selectedChatIds.length === 0) return;
+
+    Alert.alert(
+      'Delete chats',
+      `Delete ${selectedChatIds.length} selected chat${selectedChatIds.length > 1 ? 's' : ''}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await Promise.all(
+                selectedChatIds.map((conversationId) =>
+                  fetch(`${API_URL}/chat/conversations/${conversationId}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId }),
+                  })
+                )
+              );
+
+              setSelectedChatIds([]);
+              setIsSelectingChats(false);
+              await loadConversations();
+            } catch (err) {
+              console.error('Failed to bulk delete conversations:', err);
+              Alert.alert('Error', 'Could not delete selected chats.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteMessage = async (messageId: number) => {
+    if (!userId) return;
+
+    try {
+      const res = await fetch(`${API_URL}/chat/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!res.ok) {
+        Alert.alert('Error', 'Could not delete message.');
+        return;
+      }
+
+      setMessages((prev) => prev.filter((msg) => msg.messageid !== messageId));
+      if (editingMessageId === messageId) {
+        setEditingMessageId(null);
+        setDraft('');
+      }
+      void loadConversations();
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+      Alert.alert('Error', 'Could not delete message.');
     }
   };
 
@@ -273,6 +402,27 @@ export default function ChatScreen() {
 
     try {
       setSending(true);
+
+      if (editingMessageId) {
+        const res = await fetch(`${API_URL}/chat/messages/${editingMessageId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, content }),
+        });
+
+        if (!res.ok) {
+          Alert.alert('Error', 'Could not edit message.');
+          return;
+        }
+
+        const updated = (await res.json()) as ChatMessage;
+        setMessages((prev) => prev.map((msg) => (msg.messageid === updated.messageid ? updated : msg)));
+        setEditingMessageId(null);
+        setDraft('');
+        void loadConversations();
+        return;
+      }
+
       const res = await fetch(`${API_URL}/chat/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -311,34 +461,69 @@ export default function ChatScreen() {
 
   const renderList = () => (
     <>
+      <TextInput
+        value={chatSearch}
+        onChangeText={setChatSearch}
+        placeholder="Search chats"
+        style={styles.searchInput}
+      />
       {loadingConversations ? (
         <ActivityIndicator color="#111827" style={styles.loadingConversations} />
       ) : (
         <FlatList
-          data={conversations}
+          data={filteredConversations}
           keyExtractor={(item) => item.conversationid.toString()}
           contentContainerStyle={styles.chatList}
           renderItem={({ item }) => (
-            <Pressable
-              style={styles.chatRow}
-              onPress={() => {
-                void loadMessages(item.conversationid);
-              }}
-            >
-              <View style={styles.chatTextWrap}>
-                <Text style={styles.chatName}>
-                  {formatName(item.first_name, item.last_name) || item.email}
-                </Text>
-                <Text style={styles.chatPreview} numberOfLines={1}>
-                  {item.last_message || 'No messages yet'}
-                </Text>
-              </View>
-              {item.unread_count > 0 && <View style={styles.unreadDot} />}
-            </Pressable>
+            <View style={styles.chatRow}>
+              {isSelectingChats ? (
+                <Pressable
+                  style={styles.selectCircleWrap}
+                  onPress={() => {
+                    setSelectedChatIds((prev) =>
+                      prev.includes(item.conversationid)
+                        ? prev.filter((id) => id !== item.conversationid)
+                        : [...prev, item.conversationid]
+                    );
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.selectCircle,
+                      selectedChatIds.includes(item.conversationid) && styles.selectCircleSelected,
+                    ]}
+                  />
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={styles.chatOpenArea}
+                onPress={() => {
+                  if (isSelectingChats) {
+                    setSelectedChatIds((prev) =>
+                      prev.includes(item.conversationid)
+                        ? prev.filter((id) => id !== item.conversationid)
+                        : [...prev, item.conversationid]
+                    );
+                  } else {
+                    void loadMessages(item.conversationid);
+                  }
+                }}
+              >
+                <View style={styles.chatTextWrap}>
+                  <Text style={styles.chatName}>
+                    {formatName(item.first_name, item.last_name) || item.email}
+                  </Text>
+                  <Text style={styles.chatPreview} numberOfLines={1}>
+                    {item.last_message || 'No messages yet'}
+                  </Text>
+                </View>
+                {item.unread_count > 0 && <View style={styles.unreadDot} />}
+              </Pressable>
+            </View>
           )}
           ListEmptyComponent={
             <View style={styles.emptyListCard}>
-              <Text style={styles.emptyListText}>No chats yet. Tap New Chat.</Text>
+              <Text style={styles.emptyListText}>No matching chats.</Text>
             </View>
           }
         />
@@ -353,6 +538,8 @@ export default function ChatScreen() {
           onPress={() => {
             setSelectedConversationId(null);
             setMessages([]);
+            setEditingMessageId(null);
+            setDraft('');
           }}
         >
           <Text style={styles.backText}>Back</Text>
@@ -379,9 +566,37 @@ export default function ChatScreen() {
                 <Text style={styles.messageSender}>{formatName(item.first_name, item.last_name)}</Text>
                 <Text style={styles.messageBody}>{item.content}</Text>
                 {isMine && (
-                  <Text style={styles.readReceipt}>
-                    {item.read_at ? `Read ${formatReceiptTime(item.read_at)}` : 'Sent'}
-                  </Text>
+                  <>
+                    <Text style={styles.readReceipt}>
+                      {item.read_at ? `Read ${formatReceiptTime(item.read_at)}` : 'Sent'}
+                    </Text>
+                    <View style={styles.messageActions}>
+                      <Pressable
+                        onPress={() => {
+                          setEditingMessageId(item.messageid);
+                          setDraft(item.content);
+                        }}
+                      >
+                        <Text style={styles.actionText}>Edit</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          Alert.alert('Delete message', 'Delete this message?', [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => {
+                                void handleDeleteMessage(item.messageid);
+                              },
+                            },
+                          ]);
+                        }}
+                      >
+                        <Text style={styles.actionDeleteText}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </>
                 )}
               </View>
             );
@@ -390,11 +605,25 @@ export default function ChatScreen() {
         />
       )}
 
+      {editingMessageId && (
+        <View style={styles.editBanner}>
+          <Text style={styles.editBannerText}>Editing message</Text>
+          <Pressable
+            onPress={() => {
+              setEditingMessageId(null);
+              setDraft('');
+            }}
+          >
+            <Text style={styles.cancelEditText}>Cancel</Text>
+          </Pressable>
+        </View>
+      )}
+
       <View style={styles.composerRow}>
         <TextInput
           value={draft}
           onChangeText={setDraft}
-          placeholder="Type a message"
+          placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
           style={styles.composerInput}
         />
         <Pressable
@@ -402,7 +631,9 @@ export default function ChatScreen() {
           onPress={handleSend}
           disabled={sending}
         >
-          <Text style={styles.sendButtonText}>{sending ? '...' : 'Send'}</Text>
+          <Text style={styles.sendButtonText}>
+            {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -413,9 +644,42 @@ export default function ChatScreen() {
       <View style={styles.headerRow}>
         <Text style={styles.title}>Chat</Text>
         {!selectedConversationId && (
-          <Pressable style={styles.newChatButton} onPress={() => setShowUsersModal(true)}>
-            <Text style={styles.newChatButtonText}>New Chat</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            {isSelectingChats ? (
+              <>
+                <Pressable
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    setIsSelectingChats(false);
+                    setSelectedChatIds([]);
+                  }}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.deleteSelectedButton,
+                    selectedChatIds.length === 0 && styles.deleteSelectedButtonDisabled,
+                  ]}
+                  onPress={() => {
+                    void handleBulkDeleteConversations();
+                  }}
+                  disabled={selectedChatIds.length === 0}
+                >
+                  <Text style={styles.deleteSelectedButtonText}>Delete</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable style={styles.editChatsButton} onPress={() => setIsSelectingChats(true)}>
+                  <Text style={styles.editChatsButtonText}>Edit</Text>
+                </Pressable>
+                <Pressable style={styles.newChatButton} onPress={() => setShowUsersModal(true)}>
+                  <Text style={styles.newChatButtonText}>New Chat</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
         )}
       </View>
 
@@ -425,8 +689,14 @@ export default function ChatScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => setShowUsersModal(false)}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Start a Chat</Text>
+            <TextInput
+              value={userSearch}
+              onChangeText={setUserSearch}
+              placeholder="Search users"
+              style={styles.searchInput}
+            />
             <FlatList
-              data={users}
+              data={filteredUsers}
               keyExtractor={(item) => item.userid.toString()}
               renderItem={({ item }) => (
                 <Pressable
@@ -471,6 +741,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editChatsButton: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#fff',
+  },
+  editChatsButtonText: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   newChatButton: {
     backgroundColor: '#111827',
     paddingHorizontal: 12,
@@ -482,6 +770,44 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  cancelButton: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#fff',
+  },
+  cancelButtonText: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deleteSelectedButton: {
+    backgroundColor: '#dc2626',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  deleteSelectedButtonDisabled: {
+    opacity: 0.5,
+  },
+  deleteSelectedButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111827',
+    backgroundColor: '#fff',
+    marginBottom: 10,
+  },
   loadingConversations: {
     marginVertical: 20,
   },
@@ -490,15 +816,36 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   chatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 12,
     backgroundColor: '#f9fafb',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  selectCircleWrap: {
+    padding: 2,
+  },
+  selectCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#9ca3af',
+    backgroundColor: '#fff',
+  },
+  selectCircleSelected: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  chatOpenArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   chatTextWrap: {
     flex: 1,
@@ -519,6 +866,7 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: '#2563eb',
+    marginLeft: 6,
   },
   emptyListCard: {
     borderWidth: 1,
@@ -567,7 +915,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    maxWidth: '86%',
+    maxWidth: '88%',
   },
   mineBubble: {
     alignSelf: 'flex-end',
@@ -593,6 +941,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#1d4ed8',
     fontWeight: '600',
+  },
+  messageActions: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignSelf: 'flex-end',
+    gap: 10,
+  },
+  actionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1d4ed8',
+  },
+  actionDeleteText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#dc2626',
+  },
+  editBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  editBannerText: {
+    color: '#1f2937',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  cancelEditText: {
+    color: '#dc2626',
+    fontWeight: '700',
+    fontSize: 12,
   },
   composerRow: {
     flexDirection: 'row',
@@ -660,7 +1040,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 28,
-    maxHeight: '65%',
+    maxHeight: '70%',
   },
   modalTitle: {
     fontSize: 18,

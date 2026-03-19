@@ -13,6 +13,10 @@ function parseId(value) {
         return null;
     return num;
 }
+async function getConversationParticipantIds(conversationId) {
+    const participants = await db_1.default.query('SELECT userid FROM conversation_participants WHERE conversationid = $1', [conversationId]);
+    return participants.rows.map((row) => row.userid);
+}
 router.get('/users', async (req, res) => {
     const excludeUserId = parseId(req.query.excludeUserId);
     try {
@@ -118,6 +122,7 @@ router.get('/conversations/user/:userId', async (req, res) => {
           AND um.senderid <> $1
           AND um.read_at IS NULL
       ) unread ON TRUE
+      WHERE m.messageid IS NOT NULL
       ORDER BY COALESCE(m.sent_at, c.created_at) DESC
       `, [userId]);
         return res.json(result.rows);
@@ -179,9 +184,9 @@ router.post('/messages', async (req, res) => {
         (SELECT first_name FROM users WHERE userid = senderid) AS first_name,
         (SELECT last_name FROM users WHERE userid = senderid) AS last_name
       `, [conversationId, senderId, content]);
-        const participants = await db_1.default.query('SELECT userid FROM conversation_participants WHERE conversationid = $1', [conversationId]);
         const message = inserted.rows[0];
-        (0, wsHub_1.notifyUsers)(participants.rows.map((row) => row.userid), {
+        const participantIds = await getConversationParticipantIds(conversationId);
+        (0, wsHub_1.notifyUsers)(participantIds, {
             type: 'new_message',
             conversationId,
             message,
@@ -209,8 +214,8 @@ router.post('/conversations/:conversationId/read', async (req, res) => {
         AND senderid <> $2
         AND read_at IS NULL
       `, [conversationId, userId, readAt]);
-        const participants = await db_1.default.query('SELECT userid FROM conversation_participants WHERE conversationid = $1', [conversationId]);
-        (0, wsHub_1.notifyUsers)(participants.rows.map((row) => row.userid), {
+        const participantIds = await getConversationParticipantIds(conversationId);
+        (0, wsHub_1.notifyUsers)(participantIds, {
             type: 'conversation_read',
             conversationId,
             readerId: userId,
@@ -221,6 +226,119 @@ router.post('/conversations/:conversationId/read', async (req, res) => {
     catch (err) {
         console.error('Failed to mark conversation as read:', err);
         return res.status(500).json({ error: 'Failed to mark conversation as read' });
+    }
+});
+router.patch('/messages/:messageId', async (req, res) => {
+    const messageId = parseId(req.params.messageId);
+    const userId = parseId(req.body.userId);
+    const content = String(req.body.content ?? '').trim();
+    if (!messageId || !userId || !content) {
+        return res.status(400).json({ error: 'Valid message ID, user ID, and content are required' });
+    }
+    try {
+        const existing = await db_1.default.query(`
+      SELECT conversationid, senderid
+      FROM messages
+      WHERE messageid = $1
+      LIMIT 1
+      `, [messageId]);
+        if (existing.rows.length === 0) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+        const messageMeta = existing.rows[0];
+        if (!messageMeta) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+        if (messageMeta.senderid !== userId) {
+            return res.status(403).json({ error: 'You can only edit your own messages' });
+        }
+        const updated = await db_1.default.query(`
+      UPDATE messages
+      SET content = $2
+      WHERE messageid = $1
+      RETURNING messageid, conversationid, senderid, content, sent_at, read_at,
+        (SELECT first_name FROM users WHERE userid = senderid) AS first_name,
+        (SELECT last_name FROM users WHERE userid = senderid) AS last_name
+      `, [messageId, content]);
+        const message = updated.rows[0];
+        const participantIds = await getConversationParticipantIds(messageMeta.conversationid);
+        (0, wsHub_1.notifyUsers)(participantIds, {
+            type: 'message_updated',
+            conversationId: messageMeta.conversationid,
+            message,
+        });
+        return res.json(message);
+    }
+    catch (err) {
+        console.error('Failed to edit message:', err);
+        return res.status(500).json({ error: 'Failed to edit message' });
+    }
+});
+router.delete('/messages/:messageId', async (req, res) => {
+    const messageId = parseId(req.params.messageId);
+    const userId = parseId(req.body.userId);
+    if (!messageId || !userId) {
+        return res.status(400).json({ error: 'Valid message ID and user ID are required' });
+    }
+    try {
+        const existing = await db_1.default.query(`
+      SELECT conversationid, senderid
+      FROM messages
+      WHERE messageid = $1
+      LIMIT 1
+      `, [messageId]);
+        if (existing.rows.length === 0) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+        const messageMeta = existing.rows[0];
+        if (!messageMeta) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+        if (messageMeta.senderid !== userId) {
+            return res.status(403).json({ error: 'You can only delete your own messages' });
+        }
+        await db_1.default.query('DELETE FROM messages WHERE messageid = $1', [messageId]);
+        const participantIds = await getConversationParticipantIds(messageMeta.conversationid);
+        (0, wsHub_1.notifyUsers)(participantIds, {
+            type: 'message_deleted',
+            conversationId: messageMeta.conversationid,
+            messageId,
+        });
+        return res.json({ success: true });
+    }
+    catch (err) {
+        console.error('Failed to delete message:', err);
+        return res.status(500).json({ error: 'Failed to delete message' });
+    }
+});
+router.delete('/conversations/:conversationId', async (req, res) => {
+    const conversationId = parseId(req.params.conversationId);
+    const userId = parseId(req.body.userId);
+    if (!conversationId || !userId) {
+        return res.status(400).json({ error: 'Valid conversation ID and user ID are required' });
+    }
+    try {
+        const membership = await db_1.default.query(`
+      SELECT 1
+      FROM conversation_participants
+      WHERE conversationid = $1 AND userid = $2
+      LIMIT 1
+      `, [conversationId, userId]);
+        if (membership.rowCount === 0) {
+            return res.status(403).json({ error: 'User is not in this conversation' });
+        }
+        const participantIds = await getConversationParticipantIds(conversationId);
+        await db_1.default.query('DELETE FROM conversations WHERE conversationid = $1', [conversationId]);
+        (0, wsHub_1.notifyUsers)(participantIds, {
+            type: 'conversation_deleted',
+            conversationId,
+            deletedBy: userId,
+        });
+        return res.json({ success: true });
+    }
+    catch (err) {
+        console.error('Failed to delete conversation:', err);
+        return res.status(500).json({ error: 'Failed to delete conversation' });
     }
 });
 exports.default = router;
