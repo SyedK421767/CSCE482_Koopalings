@@ -7,6 +7,7 @@ export type AuthUser = {
   email?: string;
   phone_number?: string;
   type?: string;
+  tags?: { tagid: number; name: string }[];
 };
 
 type AuthContextType = {

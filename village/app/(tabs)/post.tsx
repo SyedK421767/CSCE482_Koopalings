@@ -332,7 +332,7 @@ export default function PostScreen() {
           <Pressable style={styles.modalOverlay} onPress={() => setShowTagModal(false)}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Select a Tag</Text>
-https://console.cloud.google.com/sql/instances/village-db/overview?project=village-486422              <FlatList
+              <FlatList
                 data={tags}
                 keyExtractor={(item) => item.tagid.toString()}
                 renderItem={({ item }) => (

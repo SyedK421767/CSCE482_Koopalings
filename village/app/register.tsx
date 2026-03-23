@@ -118,7 +118,7 @@ export default function RegisterScreen() {
 
       setCurrentUser(user);
       setIsSignedIn(true);
-      router.replace('/(tabs)/home');
+      router.replace('/onboarding-interests');
     } catch (e) {
       console.error('Network error:', e);
       Alert.alert('Error', 'Network error. Try again.');
