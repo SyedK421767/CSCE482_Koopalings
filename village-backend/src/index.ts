@@ -7,6 +7,8 @@ import usersRouter from './routes/users';
 import uploadRouter from './routes/upload';
 import chatRouter from './routes/chat';
 import { initChatWebSocket } from './chat/wsHub';
+import tagsRouter from './routes/tags';
+
 
 dotenv.config();
 
@@ -21,6 +23,7 @@ app.use('/posts', postsRouter);
 app.use('/users', usersRouter);
 app.use('/upload', uploadRouter);
 app.use('/chat', chatRouter);
+app.use('/tags', tagsRouter);
 
 async function startServer() {
   try {

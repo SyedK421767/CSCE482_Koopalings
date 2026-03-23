@@ -15,6 +15,7 @@ import {
 import * as Location from 'expo-location';
 import MapView, { Circle, Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
@@ -26,6 +27,8 @@ type Post = {
   start_time: string;
   description: string;
   image_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type Tag = {
@@ -60,14 +63,11 @@ export default function ExploreScreen() {
 
   // Filters
   const [showFilters, setShowFilters] = useState(false);
-  const [locationFilter, setLocationFilter] = useState('');
+  const [radiusMiles, setRadiusMiles] = useState(10);
+  const [radiusEnabled, setRadiusEnabled] = useState(false);
   const [creatorFilter, setCreatorFilter] = useState('');
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [hasImageOnly, setHasImageOnly] = useState(false);
-
-  // Map markers
-  const [eventMarkers, setEventMarkers] = useState<EventMarker[]>([]);
-  const [loadingMarkers, setLoadingMarkers] = useState(false);
 
   // Dynamic tags from DB
   const [tags, setTags] = useState<Tag[]>([]);
@@ -86,8 +86,22 @@ export default function ExploreScreen() {
     return map;
   }, [postTags]);
 
-  const radiusMiles = 1;
   const radiusMeters = radiusMiles * 1609.34;
+
+  // Haversine distance in miles
+  const getDistanceMiles = (
+    lat1: number, lon1: number,
+    lat2: number, lon2: number
+  ): number => {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 3958.8; // Earth radius in miles
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
 
   const fetchPosts = async () => {
     try {
@@ -151,58 +165,8 @@ export default function ExploreScreen() {
     requestAndFetchLocation();
   }, []);
 
-  useEffect(() => {
-    if (posts.length > 0) {
-      geocodePostLocations();
-    }
-  }, [posts]);
-
-  const geocodePostLocations = async () => {
-    setLoadingMarkers(true);
-
-    try {
-      const results = await Promise.all(
-        posts.map(async (post): Promise<EventMarker | null> => {
-          if (!post.location?.trim()) return null;
-
-          try {
-            const geo = await Location.geocodeAsync(post.location);
-
-            if (geo.length > 0) {
-              const { latitude, longitude } = geo[0];
-
-              if (
-                typeof latitude === 'number' &&
-                typeof longitude === 'number'
-              ) {
-                return {
-                  postid: post.postid,
-                  title: post.title,
-                  location: post.location,
-                  latitude,
-                  longitude,
-                };
-              }
-            }
-          } catch {
-            console.log('Geocode failed:', post.location);
-          }
-
-          return null;
-        })
-      );
-
-      setEventMarkers(results.filter((marker): marker is EventMarker => marker !== null));
-    } catch (err) {
-      console.error('Geocoding failed:', err);
-    } finally {
-      setLoadingMarkers(false);
-    }
-  };
-
   const filteredPosts = useMemo(() => {
     const searchQuery = searchText.toLowerCase().trim();
-    const locationQuery = locationFilter.toLowerCase().trim();
     const creatorQuery = creatorFilter.toLowerCase().trim();
     const now = new Date();
 
@@ -219,8 +183,6 @@ export default function ExploreScreen() {
         location.includes(searchQuery) ||
         description.includes(searchQuery);
 
-      const matchesLocation = !locationQuery || location.includes(locationQuery);
-
       const matchesCreator = !creatorQuery || creator.includes(creatorQuery);
 
       const matchesUpcoming =
@@ -234,36 +196,57 @@ export default function ExploreScreen() {
         selectedTagId === null ||
         (postTagMap.get(post.postid)?.has(selectedTagId) ?? false);
 
+      // Distance filtering
+      let matchesDistance = true;
+      if (radiusEnabled && coords) {
+        const postLat = Number(post.latitude);
+        const postLng = Number(post.longitude);
+        if (!isNaN(postLat) && !isNaN(postLng)) {
+          const dist = getDistanceMiles(
+            coords.latitude, coords.longitude,
+            postLat, postLng
+          );
+          matchesDistance = dist <= radiusMiles;
+        }
+      }
+
       return (
         matchesSearch &&
-        matchesLocation &&
         matchesCreator &&
         matchesUpcoming &&
         matchesImage &&
-        matchesTag
+        matchesTag &&
+        matchesDistance
       );
     });
   }, [
     posts,
     searchText,
-    locationFilter,
     creatorFilter,
     upcomingOnly,
     hasImageOnly,
     selectedTagId,
     postTagMap,
+    radiusEnabled,
+    radiusMiles,
+    coords,
   ]);
+
+  const eventMarkers: EventMarker[] = useMemo(() => {
+    return posts
+      .filter((p) => typeof p.latitude === 'number' && typeof p.longitude === 'number')
+      .map((p) => ({
+        postid: p.postid,
+        title: p.title,
+        location: p.location,
+        latitude: p.latitude!,
+        longitude: p.longitude!,
+      }));
+  }, [posts]);
 
   const filteredEventMarkers = useMemo(() => {
     const filteredPostIds = new Set(filteredPosts.map((post) => post.postid));
-
-    return eventMarkers.filter(
-      (marker) =>
-        marker &&
-        filteredPostIds.has(marker.postid) &&
-        typeof marker.latitude === 'number' &&
-        typeof marker.longitude === 'number'
-    );
+    return eventMarkers.filter((marker) => filteredPostIds.has(marker.postid));
   }, [eventMarkers, filteredPosts]);
 
   const mapKey = useMemo(() => {
@@ -272,11 +255,12 @@ export default function ExploreScreen() {
       .sort((a, b) => a - b)
       .join('-');
 
-    return `${selectedTagId}-${locationFilter}-${creatorFilter}-${upcomingOnly}-${hasImageOnly}-${markerIds}`;
+    return `${selectedTagId}-${radiusMiles}-${radiusEnabled}-${creatorFilter}-${upcomingOnly}-${hasImageOnly}-${markerIds}`;
   }, [
     filteredEventMarkers,
     selectedTagId,
-    locationFilter,
+    radiusMiles,
+    radiusEnabled,
     creatorFilter,
     upcomingOnly,
     hasImageOnly,
@@ -319,18 +303,31 @@ export default function ExploreScreen() {
         </Pressable>
       </View>
 
-      {/* Active tag indicator */}
-      {selectedTagId !== null && (
+      {/* Active filter indicators */}
+      {(selectedTagId !== null || radiusEnabled) && (
         <View style={styles.activeTagRow}>
-          <Pressable
-            style={styles.activeTagChip}
-            onPress={() => setSelectedTagId(null)}
-          >
-            <Text style={styles.activeTagText}>
-              {tags.find((t) => t.tagid === selectedTagId)?.name ?? 'Tag'}
-            </Text>
-            <Ionicons name="close-circle" size={16} color="#4F46E5" style={{ marginLeft: 4 }} />
-          </Pressable>
+          {selectedTagId !== null && (
+            <Pressable
+              style={styles.activeTagChip}
+              onPress={() => setSelectedTagId(null)}
+            >
+              <Text style={styles.activeTagText}>
+                {tags.find((t) => t.tagid === selectedTagId)?.name ?? 'Tag'}
+              </Text>
+              <Ionicons name="close-circle" size={16} color="#4F46E5" style={{ marginLeft: 4 }} />
+            </Pressable>
+          )}
+          {radiusEnabled && (
+            <Pressable
+              style={[styles.activeTagChip, selectedTagId !== null && { marginLeft: 8 }]}
+              onPress={() => setRadiusEnabled(false)}
+            >
+              <Text style={styles.activeTagText}>
+                Within {radiusMiles} {radiusMiles === 1 ? 'mi' : 'mi'}
+              </Text>
+              <Ionicons name="close-circle" size={16} color="#4F46E5" style={{ marginLeft: 4 }} />
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -512,14 +509,36 @@ export default function ExploreScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.filterLabel}>Location</Text>
-              <TextInput
-                style={styles.filterInput}
-                placeholder="Filter by location"
-                placeholderTextColor="#8b8b8b"
-                value={locationFilter}
-                onChangeText={setLocationFilter}
-              />
+              <Text style={styles.filterLabel}>Distance</Text>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Filter by distance</Text>
+                <Switch value={radiusEnabled} onValueChange={setRadiusEnabled} />
+              </View>
+              {radiusEnabled && (
+                <View style={styles.sliderSection}>
+                  {!coords && (
+                    <Text style={styles.sliderHint}>
+                      Enable location access to use distance filter
+                    </Text>
+                  )}
+                  <Text style={styles.sliderValue}>{radiusMiles} {radiusMiles === 1 ? 'mile' : 'miles'}</Text>
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={1}
+                    maximumValue={50}
+                    step={1}
+                    value={radiusMiles}
+                    onValueChange={setRadiusMiles}
+                    minimumTrackTintColor="#4F46E5"
+                    maximumTrackTintColor="#e5e7eb"
+                    thumbTintColor="#4F46E5"
+                  />
+                  <View style={styles.sliderLabels}>
+                    <Text style={styles.sliderLabelText}>1 mi</Text>
+                    <Text style={styles.sliderLabelText}>50 mi</Text>
+                  </View>
+                </View>
+              )}
 
               <Text style={styles.filterLabel}>Creator</Text>
               <TextInput
@@ -587,7 +606,8 @@ export default function ExploreScreen() {
               <Pressable
                 style={styles.clearButton}
                 onPress={() => {
-                  setLocationFilter('');
+                  setRadiusEnabled(false);
+                  setRadiusMiles(10);
                   setCreatorFilter('');
                   setUpcomingOnly(false);
                   setHasImageOnly(false);
@@ -896,6 +916,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#4F46E5',
+  },
+  sliderSection: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  sliderValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  sliderLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  sliderLabelText: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  sliderHint: {
+    fontSize: 13,
+    color: '#b91c1c',
+    marginBottom: 8,
   },
   tagGrid: {
     flexDirection: 'row',
