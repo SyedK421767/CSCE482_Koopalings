@@ -28,6 +28,16 @@ type Post = {
   image_url: string | null;
 };
 
+type Tag = {
+  tagid: number;
+  name: string;
+};
+
+type PostTag = {
+  postid: number;
+  tagid: number;
+};
+
 type EventMarker = {
   postid: number;
   title: string;
@@ -48,32 +58,33 @@ export default function ExploreScreen() {
   const [error, setError] = useState<string | null>(null);
   const [coords, setCoords] = useState<Location.LocationObjectCoords | null>(null);
 
-  //use-states for filtering through posts
+  // Filters
   const [showFilters, setShowFilters] = useState(false);
   const [locationFilter, setLocationFilter] = useState('');
   const [creatorFilter, setCreatorFilter] = useState('');
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [hasImageOnly, setHasImageOnly] = useState(false);
 
-  //use-states for hardcoded location pins
+  // Map markers
   const [eventMarkers, setEventMarkers] = useState<EventMarker[]>([]);
   const [loadingMarkers, setLoadingMarkers] = useState(false);
 
-  //hard-coded hobbies
-  const hobbies = [
-    'All',
-    'Hiking',
-    'Food',
-    'Sports',
-    'Music',
-    'Gaming',
-    'Art',
-    'Study',
-    'Movies',
-    'Fitness',
-  ];
+  // Dynamic tags from DB
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [postTags, setPostTags] = useState<PostTag[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState<number | null>(null); // null = "All"
 
-  const [selectedHobby, setSelectedHobby] = useState('All');
+  // Build a lookup: postid -> set of tagids
+  const postTagMap = useMemo(() => {
+    const map = new Map<number, Set<number>>();
+    for (const pt of postTags) {
+      if (!map.has(pt.postid)) {
+        map.set(pt.postid, new Set());
+      }
+      map.get(pt.postid)!.add(pt.tagid);
+    }
+    return map;
+  }, [postTags]);
 
   const radiusMiles = 1;
   const radiusMeters = radiusMiles * 1609.34;
@@ -87,6 +98,26 @@ export default function ExploreScreen() {
       console.error('Failed to fetch posts:', err);
     } finally {
       setLoadingPosts(false);
+    }
+  };
+
+  const fetchTags = async () => {
+    try {
+      const response = await fetch(`${API_URL}/tags`);
+      const data = await response.json();
+      setTags(data);
+    } catch (err) {
+      console.error('Failed to fetch tags:', err);
+    }
+  };
+
+  const fetchPostTags = async () => {
+    try {
+      const response = await fetch(`${API_URL}/tags/post-tags`);
+      const data = await response.json();
+      setPostTags(data);
+    } catch (err) {
+      console.error('Failed to fetch post-tags:', err);
     }
   };
 
@@ -115,18 +146,17 @@ export default function ExploreScreen() {
 
   useEffect(() => {
     fetchPosts();
+    fetchTags();
+    fetchPostTags();
     requestAndFetchLocation();
   }, []);
 
-  //useEffect for hard-coded pins
   useEffect(() => {
     if (posts.length > 0) {
       geocodePostLocations();
     }
   }, [posts]);
-  ///////////////
 
-  //hard-coded location pins
   const geocodePostLocations = async () => {
     setLoadingMarkers(true);
 
@@ -169,13 +199,11 @@ export default function ExploreScreen() {
       setLoadingMarkers(false);
     }
   };
-  //////////
 
   const filteredPosts = useMemo(() => {
     const searchQuery = searchText.toLowerCase().trim();
     const locationQuery = locationFilter.toLowerCase().trim();
     const creatorQuery = creatorFilter.toLowerCase().trim();
-    const hobbyQuery = selectedHobby.toLowerCase().trim();
     const now = new Date();
 
     return posts.filter((post) => {
@@ -201,10 +229,10 @@ export default function ExploreScreen() {
 
       const matchesImage = !hasImageOnly || !!post.image_url;
 
-      const matchesHobby =
-        selectedHobby === 'All' ||
-        title.includes(hobbyQuery) ||
-        description.includes(hobbyQuery);
+      // Tag filtering via post_tags junction table
+      const matchesTag =
+        selectedTagId === null ||
+        (postTagMap.get(post.postid)?.has(selectedTagId) ?? false);
 
       return (
         matchesSearch &&
@@ -212,7 +240,7 @@ export default function ExploreScreen() {
         matchesCreator &&
         matchesUpcoming &&
         matchesImage &&
-        matchesHobby
+        matchesTag
       );
     });
   }, [
@@ -222,7 +250,8 @@ export default function ExploreScreen() {
     creatorFilter,
     upcomingOnly,
     hasImageOnly,
-    selectedHobby,
+    selectedTagId,
+    postTagMap,
   ]);
 
   const filteredEventMarkers = useMemo(() => {
@@ -243,10 +272,10 @@ export default function ExploreScreen() {
       .sort((a, b) => a - b)
       .join('-');
 
-    return `${selectedHobby}-${locationFilter}-${creatorFilter}-${upcomingOnly}-${hasImageOnly}-${markerIds}`;
+    return `${selectedTagId}-${locationFilter}-${creatorFilter}-${upcomingOnly}-${hasImageOnly}-${markerIds}`;
   }, [
     filteredEventMarkers,
-    selectedHobby,
+    selectedTagId,
     locationFilter,
     creatorFilter,
     upcomingOnly,
@@ -289,38 +318,21 @@ export default function ExploreScreen() {
           <Ionicons name="options-outline" size={20} color="#374151" />
         </Pressable>
       </View>
-      <View style={styles.hobbyCarouselWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.hobbyCarousel}
-        >
-          {hobbies.map((hobby) => {
-            const isSelected = selectedHobby === hobby;
 
-            return (
-              <Pressable
-                key={hobby}
-                onPress={() => {
-                  if (selectedHobby !== hobby) {
-                    setSelectedHobby(hobby);
-                  }
-                }}
-                style={[styles.hobbyChip, isSelected && styles.hobbyChipSelected]}
-              >
-                <Text
-                  style={[
-                    styles.hobbyChipText,
-                    isSelected && styles.hobbyChipTextSelected,
-                  ]}
-                >
-                  {hobby}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+      {/* Active tag indicator */}
+      {selectedTagId !== null && (
+        <View style={styles.activeTagRow}>
+          <Pressable
+            style={styles.activeTagChip}
+            onPress={() => setSelectedTagId(null)}
+          >
+            <Text style={styles.activeTagText}>
+              {tags.find((t) => t.tagid === selectedTagId)?.name ?? 'Tag'}
+            </Text>
+            <Ionicons name="close-circle" size={16} color="#4F46E5" style={{ marginLeft: 4 }} />
+          </Pressable>
+        </View>
+      )}
 
       {!showMap ? (
         loadingPosts ? (
@@ -439,6 +451,7 @@ export default function ExploreScreen() {
         />
       </Pressable>
 
+      {/* Post detail modal */}
       <Modal
         visible={selectedPost !== null}
         animationType="slide"
@@ -481,13 +494,14 @@ export default function ExploreScreen() {
           </View>
         </View>
       </Modal>
-      
+
+      {/* Filter modal */}
       <Modal
         visible={showFilters}
         animationType="slide"
         transparent
         onRequestClose={() => setShowFilters(false)}
-          >
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.filterModalContent}>
             <View style={styles.filterHeader}>
@@ -525,6 +539,48 @@ export default function ExploreScreen() {
                 <Text style={styles.switchLabel}>Only posts with images</Text>
                 <Switch value={hasImageOnly} onValueChange={setHasImageOnly} />
               </View>
+
+              <Text style={styles.filterLabel}>Tag</Text>
+              <View style={styles.tagGrid}>
+                <Pressable
+                  onPress={() => setSelectedTagId(null)}
+                  style={[
+                    styles.tagGridChip,
+                    selectedTagId === null && styles.tagGridChipSelected,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tagGridChipText,
+                      selectedTagId === null && styles.tagGridChipTextSelected,
+                    ]}
+                  >
+                    All
+                  </Text>
+                </Pressable>
+                {tags.map((tag) => {
+                  const isSelected = selectedTagId === tag.tagid;
+                  return (
+                    <Pressable
+                      key={tag.tagid}
+                      onPress={() => setSelectedTagId(isSelected ? null : tag.tagid)}
+                      style={[
+                        styles.tagGridChip,
+                        isSelected && styles.tagGridChipSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.tagGridChipText,
+                          isSelected && styles.tagGridChipTextSelected,
+                        ]}
+                      >
+                        {tag.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </ScrollView>
 
             <View style={styles.filterActions}>
@@ -535,7 +591,7 @@ export default function ExploreScreen() {
                   setCreatorFilter('');
                   setUpcomingOnly(false);
                   setHasImageOnly(false);
-                  setSelectedHobby('All');
+                  setSelectedTagId(null);
                 }}
               >
                 <Text style={styles.clearButtonText}>Clear</Text>
@@ -551,7 +607,6 @@ export default function ExploreScreen() {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -635,7 +690,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   mapSection: {
-    //paddingBottom: 100,
     flex: 1,
   },
   locationButton: {
@@ -683,26 +737,23 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   filterModalContent: {
-  backgroundColor: '#fff',
-  borderRadius: 16,
-  padding: 20,
-  width: '100%',
-  maxHeight: '80%',
-},
-
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxHeight: '80%',
+  },
   filterHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-
   filterTitle: {
     fontSize: 22,
     fontWeight: '700',
     color: '#111827',
   },
-
   filterLabel: {
     fontSize: 14,
     fontWeight: '600',
@@ -710,7 +761,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 8,
   },
-
   filterInput: {
     height: 48,
     backgroundColor: '#f3f4f6',
@@ -721,7 +771,6 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
     marginBottom: 12,
   },
-
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -730,21 +779,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
-
   switchLabel: {
     fontSize: 15,
     color: '#374151',
     flex: 1,
     marginRight: 12,
   },
-
   filterActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
     gap: 12,
   },
-
   clearButton: {
     flex: 1,
     borderWidth: 1,
@@ -754,13 +800,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
   },
-
   clearButtonText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#374151',
   },
-
   applyButton: {
     flex: 1,
     borderRadius: 10,
@@ -768,7 +812,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#111827',
   },
-
   applyButtonText: {
     fontSize: 15,
     fontWeight: '600',
@@ -835,41 +878,49 @@ const styles = StyleSheet.create({
     color: '#4b5563',
     lineHeight: 22,
   },
-  hobbyCarouselWrapper: {
-    height: 50,
+  activeTagRow: {
+    flexDirection: 'row',
     marginBottom: 12,
-    justifyContent: 'center',
   },
-
-  hobbyCarousel: {
-    paddingHorizontal: 2,
+  activeTagChip: {
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
-
-  hobbyChip: {
-    height: 38,
-    paddingHorizontal: 16,
+  activeTagText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4F46E5',
+  },
+  tagGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  tagGridChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     backgroundColor: '#f3f4f6',
-    borderRadius: 20,
-    marginRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-
-  hobbyChipSelected: {
+  tagGridChipSelected: {
     backgroundColor: '#4F46E5',
     borderColor: '#4F46E5',
   },
-
-  hobbyChipText: {
-    fontSize: 14,
+  tagGridChipText: {
+    fontSize: 13,
     color: '#333',
     fontWeight: '500',
   },
-
-  hobbyChipTextSelected: {
+  tagGridChipTextSelected: {
     color: '#fff',
   },
 });
