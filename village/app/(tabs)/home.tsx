@@ -17,6 +17,7 @@ export default function HomeScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [activeTab, setActiveTab] = useState<'Events' | 'Hobbies'>('Events');
 
 const fetchPosts = async () => {
   try {
@@ -38,27 +39,70 @@ const fetchPosts = async () => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Home</Text>
-      {loading ? (
-        <ActivityIndicator size="large" color="#111827" />
-      ) : (
-        <FlatList
-          data={posts}
-          keyExtractor={(item) => item.postid.toString()}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
-              {item.image_url && (
-                <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'Events' && styles.activeTabButton]}
+          onPress={() => setActiveTab('Events')}>
+          <Text style={[styles.tabText, activeTab === 'Events' && styles.activeTabText]}>Events</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.tabButton, activeTab === 'Hobbies' && styles.activeTabButton]}
+          onPress={() => setActiveTab('Hobbies')}>
+          <Text style={[styles.tabText, activeTab === 'Hobbies' && styles.activeTabText]}>Hobbies</Text>
+        </Pressable>
+      </View>
+
+      {activeTab === 'Events' ? (
+        loading ? (
+          <ActivityIndicator size="large" color="#111827" />
+        ) : (
+          <View style={styles.eventsContainer}>
+            <Text style={styles.containerHeader}>Upcoming 📅</Text>
+            <FlatList
+              data={posts}
+              keyExtractor={(item) => item.postid.toString()}
+              contentContainerStyle={styles.list}
+              renderItem={({ item }) => (
+                <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
+                  {item.image_url && (
+                    <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+                  )}
+                  <Text style={styles.postTitle}>{item.title}</Text>
+                  <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                  <Text style={styles.postDetail}>📍 {item.location}</Text>
+                  <Text style={styles.postDetail}>
+                    🕐 {item.start_time ? new Date(item.start_time.replace('Z', '')).toLocaleString() : 'No time set'}
+                  </Text>
+                </Pressable>
               )}
-              <Text style={styles.postTitle}>{item.title}</Text>
-              <Text style={styles.postAuthor}>by {item.displayname}</Text>
-              <Text style={styles.postDetail}>📍 {item.location}</Text>
-              <Text style={styles.postDetail}>
-                🕐 {item.start_time ? new Date(item.start_time.replace('Z', '')).toLocaleString() : 'No time set'}
-              </Text>
+            />
+          </View>
+        )
+      ) : (
+        <View style={styles.hobbiesContainer}>
+          <Text style={styles.hobbiesText}>Pick a hobby</Text>
+          <View style={styles.hobbiesGrid}>
+            <Pressable style={styles.hobbyButton}>
+              <Text style={styles.hobbyButtonText}>Sports ⚽️</Text>
             </Pressable>
-          )}
-        />
+            <Pressable style={styles.hobbyButton}>
+              <Text style={styles.hobbyButtonText}>Gaming 🎮</Text>
+            </Pressable>
+            <Pressable style={styles.hobbyButton}>
+              <Text style={styles.hobbyButtonText}>Music 🎵</Text>
+            </Pressable>
+            <Pressable style={styles.hobbyButton}>
+              <Text style={styles.hobbyButtonText}>Art 🎨</Text>
+            </Pressable>
+            <Pressable style={styles.hobbyButton}>
+              <Text style={styles.hobbyButtonText}>Fitness 💪</Text>
+            </Pressable>
+            <Pressable style={styles.hobbyButton}>
+              <Text style={styles.hobbyButtonText}>Study 📚</Text>
+            </Pressable>
+          </View>
+        </View>
       )}
 
       <Modal
@@ -105,31 +149,99 @@ const fetchPosts = async () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#e8f3f8',
     paddingTop: 64,
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
   },
   title: {
-    fontSize: 30,
+    fontSize: 40,
     fontWeight: '700',
+    margin: 8,
+    marginTop: 36,
+    marginBottom: 36,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  tabButton: {
+    flex: 1,
+    alignContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    backgroundColor: '#7eacc3',
+  },
+  activeTabButton: {
+    backgroundColor: '#fff',
+  },
+  tabText: {
+    color: '#374151',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  activeTabText: {
+    color: '#111',
+  },
+  eventsContainer: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 16,
+  },
+  containerHeader: {
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: 16,
   },
   list: {
     gap: 12,
     paddingBottom: 20,
+    width: '100%',
+  },
+  hobbiesContainer: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 16,
+  },
+  hobbiesText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  hobbiesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  hobbyButton: {
+    width: '48%',
+    backgroundColor: '#e5eef4',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  hobbyButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
   },
   postCard: {
-    borderWidth: 1,
+    borderWidth: 0,
     borderColor: '#e5e7eb',
     borderRadius: 12,
-    padding: 14,
-    backgroundColor: '#f9fafb',
+    padding: 25,
+    backgroundColor: '#cce6f7',
   },
   cardImage: {
     width: '100%',
     height: 160,
     borderRadius: 8,
-    marginBottom: 10,
+    marginBottom: 20,
   },
   postTitle: {
     fontSize: 16,
@@ -139,11 +251,13 @@ const styles = StyleSheet.create({
   postAuthor: {
     fontSize: 14,
     color: '#4b5563',
+    marginBottom: 4,
   },
   postDetail: {
     fontSize: 13,
     color: '#6b7280',
     marginTop: 2,
+    marginBottom: 2,
   },
   modalOverlay: {
     flex: 1,
@@ -153,14 +267,14 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: '#cce6f7',
     borderRadius: 16,
     padding: 24,
     width: '100%',
     maxHeight: '80%',
   },
   closeButton: {
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
     marginBottom: 16,
     padding: 4,
   },
@@ -187,7 +301,7 @@ const styles = StyleSheet.create({
   },
   divider: {
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    // borderTopColor: '#e5e7eb',
     marginVertical: 12,
   },
   modalDetail: {
