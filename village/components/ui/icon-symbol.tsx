@@ -19,6 +19,7 @@ const MAPPING = {
   'bubble.left.and.bubble.right.fill': 'chat',
   'map.fill': 'map',
   'gearshape.fill': 'settings',
+  'globe.europe.africa.fill': 'public',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
 } as IconMapping;

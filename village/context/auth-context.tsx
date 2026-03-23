@@ -1,21 +1,36 @@
 import { createContext, ReactNode, useContext, useMemo, useState } from 'react';
 
+export type AuthUser = {
+  userid: number;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone_number?: string;
+  type?: string;
+  tags?: { tagid: number; name: string }[];
+};
+
 type AuthContextType = {
   isSignedIn: boolean;
   setIsSignedIn: (value: boolean) => void;
+  currentUser: AuthUser | null;
+  setCurrentUser: (user: AuthUser | null) => void;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
   const value = useMemo(
     () => ({
       isSignedIn,
       setIsSignedIn,
+      currentUser,
+      setCurrentUser,
     }),
-    [isSignedIn]
+    [isSignedIn, currentUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,71 +1,194 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useMemo, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+import { useAuth } from '@/context/auth-context';
 
-type Profile = {
-  profileid: number;
-  userid: number;
-  displayname: string;
-  profilepicture: string | null;
-  bio: string | null;
-};
+const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
 export default function ProfileScreen() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const { currentUser, setCurrentUser, setIsSignedIn } = useAuth();
+  const insets = useSafeAreaInsets();
+  const [hobbies, setHobbies] = useState<string[]>([]);
+  const [tagOptions, setTagOptions] = useState<{ tagid: number; name: string }[]>([]);
+  const [pendingTagIds, setPendingTagIds] = useState<number[]>([]);
+  const [currentTagIds, setCurrentTagIds] = useState<number[]>([]);
+  const [saving, setSaving] = useState(false);
 
-  const fetchProfile = async () => {
+  useEffect(() => {
+    const tags = currentUser?.tags ?? [];
+    setHobbies(tags.map((tag: { name: string }) => tag.name));
+    const ids = tags.map((tag: { tagid: number }) => tag.tagid);
+    setPendingTagIds(ids);
+    setCurrentTagIds(ids);
+  }, [currentUser]);
+
+  useEffect(() => {
+    let active = true;
+    const fetchTags = async () => {
+      try {
+        const res = await fetch(`${API_URL}/posts/tags`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { tagid: number; name: string }[];
+        if (active) setTagOptions(data);
+      } catch (err) {
+        console.error('Failed to load hobbies list:', err);
+      }
+    };
+    fetchTags();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const displayName = useMemo(
+    () => `${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim(),
+    [currentUser]
+  );
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setIsSignedIn(false);
+    router.replace('/');
+  };
+
+  const saveHobbies = async (tagIds: number[]) => {
+    if (!currentUser) return;
+    setSaving(true);
     try {
-      const response = await fetch(`${API_URL}/profiles`);
-      const text = await response.text();
-      if (!response.ok) {
-        console.error('Profiles fetch failed:', response.status, text.slice(0, 100));
+      const res = await fetch(`${API_URL}/users/${currentUser.userid}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagIds }),
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        const message = payload?.error ?? 'Could not update hobbies.';
+        Alert.alert('Error', message);
         return;
       }
-      const data = text.startsWith('[') || text.startsWith('{') ? JSON.parse(text) : null;
-      setProfile(Array.isArray(data) ? data[0] ?? null : null);
+
+      const updated = payload;
+      setCurrentUser(updated);
+      const tags = updated?.tags ?? [];
+      const ids = tags.map((tag: { tagid: number }) => tag.tagid);
+      setHobbies(tags.map((tag: { name: string }) => tag.name));
+      setCurrentTagIds(ids);
+      setPendingTagIds(ids);
     } catch (err) {
-      console.error('Failed to fetch profile:', err);
+      console.error('Failed to save hobbies:', err);
+      Alert.alert('Error', 'Could not update hobbies.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#111827" />
-      </View>
+  const handleToggleHobby = (tagId: number) => {
+    if (saving) return;
+    setPendingTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
     );
-  }
+  };
 
-  if (!profile) {
+  const pendingMatches = useMemo(() => {
+    if (pendingTagIds.length !== currentTagIds.length) return false;
+    const sortedPending = [...pendingTagIds].sort();
+    const sortedCurrent = [...currentTagIds].sort();
+    return sortedPending.every((item, index) => item === sortedCurrent[index]);
+  }, [pendingTagIds, currentTagIds]);
+
+  const handleSaveSelection = () => {
+    saveHobbies(pendingTagIds);
+  };
+
+  const handleResetSelection = () => {
+    setPendingTagIds(currentTagIds);
+  };
+
+  if (!currentUser) {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>Profile</Text>
-        <Text style={styles.emptyText}>No profile data available.</Text>
+        <Text style={styles.subtitle}>Sign in to manage your space.</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Profile</Text>
-      <View style={styles.card}>
-        {profile.profilepicture && (
-          <Image source={{ uri: profile.profilepicture }} style={styles.profileImage} />
-        )}
-        <Text style={styles.label}>Display name</Text>
-        <Text style={styles.value}>{profile.displayname || '—'}</Text>
-
-        <Text style={styles.label}>Bio</Text>
-        <Text style={styles.value}>{profile.bio || 'No bio yet.'}</Text>
+    <View style={[styles.container, { paddingTop: insets.top + 20 }]}
+         >
+      <View style={styles.profileBox}>
+        <View style={styles.avatar}>
+          <Ionicons name="person-outline" size={48} color="#fff" />
+        </View>
+        <Text style={styles.name}>{displayName || currentUser.email}</Text>
+        <Text style={styles.subtitle}>{currentUser.email}</Text>
       </View>
+
+      <View style={styles.currentHobbiesBox}>
+        <Text style={styles.sectionLabel}>Current Hobbies</Text>
+        {hobbies.length > 0 ? (
+          <FlatList
+            data={hobbies}
+            keyExtractor={(item) => item}
+            contentContainerStyle={styles.currentHobbyList}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <View style={styles.hobbyPill}>
+                <Text style={styles.hobbyText}>{item}</Text>
+              </View>
+            )}
+          />
+        ) : (
+          <Text style={styles.emptyHobbyText}>You have not saved hobbies yet.</Text>
+        )}
+      </View>
+
+      <View style={styles.hobbiesBox}>
+        <Text style={styles.sectionLabel}>Hobbies</Text>
+        <FlatList
+          data={tagOptions}
+          keyExtractor={(item) => item.tagid.toString()}
+          horizontal
+          contentContainerStyle={styles.hobbyList}
+          showsHorizontalScrollIndicator={false}
+          renderItem={({ item }) => {
+            const selected = pendingTagIds.includes(item.tagid);
+            return (
+              <Pressable
+                style={[styles.hobbyPill, selected && styles.hobbySelected]}
+                onPress={() => handleToggleHobby(item.tagid)}
+              >
+                <Text style={[styles.hobbyText, selected && styles.hobbySelectedText]}>
+                  {item.name}
+                </Text>
+              </Pressable>
+            );
+          }}
+          ListEmptyComponent={<Text style={styles.emptyHobbyText}>Loading hobbies…</Text>}
+        />
+        <View style={styles.hobbyButtonsRow}>
+          <Pressable
+            style={[styles.saveHobbyButton, (saving || pendingMatches) && styles.disabledButton]}
+            onPress={handleSaveSelection}
+            disabled={saving || pendingMatches}
+          >
+            <Text style={styles.saveHobbyButtonText}>Save hobbies</Text>
+          </Pressable>
+          <Pressable style={styles.resetHobbyButton} onPress={handleResetSelection} disabled={saving}>
+            <Text style={styles.resetHobbyButtonText}>Reset</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <Pressable style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Log Out</Text>
+      </Pressable>
     </View>
   );
 }
@@ -73,16 +196,130 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
     padding: 24,
-    paddingTop: 64,
+    backgroundColor: '#fff',
   },
   title: {
     fontSize: 30,
     fontWeight: '700',
-    marginBottom: 16,
+    color: '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
   },
-  emptyText: {
+  profileBox: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  subtitle: {
+    color: '#6b7280',
+    fontSize: 14,
+  },
+  hobbiesBox: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#fafafa',
+    marginBottom: 12,
+  },
+  currentHobbiesBox: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  hobbyList: {
+    flexDirection: 'row',
+    paddingBottom: 8,
+  },
+  currentHobbyList: {
+    flexDirection: 'row',
+    paddingBottom: 8,
+  },
+  hobbyPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+    marginRight: 8,
+  },
+  hobbyText: {
+    color: '#111827',
+    fontWeight: '600',
+  },
+  emptyHobbyText: {
+    color: '#6b7280',
+    fontSize: 14,
+  },
+  hobbySelected: {
+    borderColor: '#2563eb',
+    backgroundColor: '#e0ebff',
+  },
+  hobbySelectedText: {
+    color: '#1d4ed8',
+  },
+  hobbyButtonsRow: {
+    flexDirection: 'row',
+  },
+  saveHobbyButton: {
+    flex: 1,
+    backgroundColor: '#2563eb',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  saveHobbyButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  resetHobbyButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  resetHobbyButtonText: {
+    color: '#111827',
+    fontWeight: '700',
+  },
+  logoutButton: {
+    marginTop: 24,
+    backgroundColor: '#dc2626',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  logoutText: {
+    color: '#fff',
     fontSize: 16,
     color: '#6b7280',
   },
