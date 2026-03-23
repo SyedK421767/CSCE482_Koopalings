@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
@@ -48,6 +49,10 @@ export default function PostScreen() {
   const [locationSuggestions, setLocationSuggestions] = useState<PlaceSuggestion[]>([]);
   const [isLocationFocused, setIsLocationFocused] = useState(false);
   const [searchingPlaces, setSearchingPlaces] = useState(false);
+
+  // Coordinates from place selection or fallback geocoding
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -136,6 +141,46 @@ export default function PostScreen() {
     };
   }, [address, isLocationFocused]);
 
+  // Fetch lat/lng from Google Place Details when user selects a suggestion
+  const fetchPlaceCoordinates = async (placeId: string) => {
+    if (!GOOGLE_PLACES_API_KEY) return;
+
+    try {
+      const response = await fetch(
+        `https://places.googleapis.com/v1/places/${placeId}`,
+        {
+          headers: {
+            'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
+            'X-Goog-FieldMask': 'location',
+          },
+        }
+      );
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (data?.location?.latitude != null && data?.location?.longitude != null) {
+        setLatitude(data.location.latitude);
+        setLongitude(data.location.longitude);
+      }
+    } catch (err) {
+      console.error('Failed to fetch place coordinates:', err);
+    }
+  };
+
+  // Fallback: geocode using expo-location if user typed an address without selecting a suggestion
+  const geocodeFallback = async (addressText: string): Promise<{ lat: number; lng: number } | null> => {
+    try {
+      const results = await Location.geocodeAsync(addressText);
+      if (results.length > 0) {
+        return { lat: results[0].latitude, lng: results[0].longitude };
+      }
+    } catch (err) {
+      console.error('Fallback geocoding failed:', err);
+    }
+    return null;
+  };
+
   const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') setShowDatePicker(false);
     if (selectedDate) setDate(selectedDate);
@@ -205,6 +250,18 @@ export default function PostScreen() {
         imageUrl = await uploadImage(image);
       }
 
+      // Use stored coordinates, or try fallback geocoding
+      let finalLat = latitude;
+      let finalLng = longitude;
+
+      if (finalLat == null || finalLng == null) {
+        const fallback = await geocodeFallback(address.trim());
+        if (fallback) {
+          finalLat = fallback.lat;
+          finalLng = fallback.lng;
+        }
+      }
+
       await fetch(`${API_URL}/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -219,6 +276,8 @@ export default function PostScreen() {
           dateandtime: combinedDateTime.toISOString(),
           image_url: imageUrl,
           tagIds: selectedTagId ? [selectedTagId] : [],
+          latitude: finalLat,
+          longitude: finalLng,
         }),
       });
 
@@ -231,6 +290,8 @@ export default function PostScreen() {
       setTime(new Date());
       setImage(null);
       setSelectedTagId(null);
+      setLatitude(null);
+      setLongitude(null);
     } catch (err) {
       console.error('Failed to create post:', err);
       Alert.alert('Error', 'Failed to create post. Please try again.');
@@ -279,11 +340,13 @@ export default function PostScreen() {
           <Text style={styles.locationSubtitle}>Search venue, street, or neighborhood</Text>
           <TextInput
             value={address}
-            onChangeText={setAddress}
-            onFocus={() => setIsLocationFocused(true)}
-            onBlur={() => {
-              setTimeout(() => setIsLocationFocused(false), 180);
+            onChangeText={(text) => {
+              setAddress(text);
+              setLatitude(null);
+              setLongitude(null);
+              if (!isLocationFocused) setIsLocationFocused(true);
             }}
+            onFocus={() => setIsLocationFocused(true)}
             placeholder="Start typing an address..."
             placeholderTextColor="#9ca3af"
             style={styles.input}
@@ -291,7 +354,7 @@ export default function PostScreen() {
           {!GOOGLE_PLACES_API_KEY && (
             <Text style={styles.locationHint}>Set EXPO_PUBLIC_GOOGLE_PLACES_API_KEY to enable autocomplete.</Text>
           )}
-          {isLocationFocused && (searchingPlaces || locationSuggestions.length > 0) && (
+          {(searchingPlaces || locationSuggestions.length > 0) && (
             <View style={styles.suggestionsCard}>
               {searchingPlaces ? (
                 <View style={styles.suggestionLoading}>
@@ -307,6 +370,7 @@ export default function PostScreen() {
                       setAddress(suggestion.fullText);
                       setLocationSuggestions([]);
                       setIsLocationFocused(false);
+                      fetchPlaceCoordinates(suggestion.placeId);
                     }}
                   >
                     <Text style={styles.suggestionPrimary}>{suggestion.primaryText}</Text>

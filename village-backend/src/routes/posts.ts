@@ -18,9 +18,9 @@ router.get('/tags', async (req: Request, res: Response) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`
-      SELECT p.PostID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL
+      SELECT p.PostID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
       FROM Posts p
-      ORDER BY p.DateAndTime DESC 
+      ORDER BY p.DateAndTime DESC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -31,13 +31,13 @@ router.get('/', async (req: Request, res: Response) => {
 
 // POST a new post
 router.post('/', async (req: Request, res: Response) => {
-  const { userID, displayname, title, description, location, address, start_time, dateandtime, image_url, tagIds } = req.body;
+  const { userID, displayname, title, description, location, address, start_time, dateandtime, image_url, latitude, longitude, tagIds } = req.body;
   try {
     const result = await pool.query(
-      `INSERT INTO Posts (UserID, DisplayName, Title, Description, Location, Address, Start_Time, DateAndTime, Image_URL)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [userID, displayname, title, description, location, address, start_time, dateandtime, image_url]
+      `INSERT INTO Posts (UserID, DisplayName, Title, Description, Location, Address, Start_Time, DateAndTime, Image_URL, Latitude, Longitude)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING *`,
+      [userID, displayname, title, description, location, address, start_time, dateandtime, image_url, latitude, longitude]
     );
 
     const postId = result.rows[0].postid;
