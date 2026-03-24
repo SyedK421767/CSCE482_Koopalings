@@ -63,29 +63,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="map"
-        options={{
-          title: 'Map',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="map.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="forum"
-        options={{
-          title: 'Forum',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="globe.europe.africa.fill" color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.fill" color={color} />,
-        }}
-      />
     </Tabs>
   );
 }
