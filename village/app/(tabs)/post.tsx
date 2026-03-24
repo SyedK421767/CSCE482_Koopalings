@@ -917,12 +917,18 @@ const styles = StyleSheet.create({
     paddingTop: 14,
   },
   sectionCard: {
+    backgroundColor: '#f7f7f7',
+    borderRadius: 18,
+    padding: 14,
     gap: 10,
+    borderWidth: 1,
+    borderColor: '#e2e2e2',
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
   },
   deletePill: {
     backgroundColor: '#eadfdf',
