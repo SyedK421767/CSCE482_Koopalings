@@ -879,7 +879,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   tagChip: {
-    backgroundColor: '#6b8752',
+    backgroundColor: '#7eacc3',
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 999,
@@ -901,7 +901,7 @@ const styles = StyleSheet.create({
   },
   timeBox: {
     width: 110,
-    backgroundColor: '#6b8752',
+    backgroundColor: '#7eacc3',
     alignItems: 'center',
     justifyContent: 'center',
     borderTopRightRadius: 18,
@@ -958,7 +958,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   pollTypeButtonActive: {
-    backgroundColor: '#6b8752',
+    backgroundColor: '#7eacc3',
   },
   pollTypeButtonText: {
     color: '#374151',
@@ -990,13 +990,13 @@ const styles = StyleSheet.create({
   },
   addOptionButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#edf3e8',
+    backgroundColor: '#7eacc3',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
   },
   addOptionButtonText: {
-    color: '#4d6638',
+    color: '#ebeef0',
     fontWeight: '700',
     fontSize: 14,
   },
