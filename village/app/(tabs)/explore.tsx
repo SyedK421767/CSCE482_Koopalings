@@ -335,31 +335,33 @@ export default function ExploreScreen() {
         loadingPosts ? (
           <ActivityIndicator size="large" color="#111827" style={styles.loaderLarge} />
         ) : (
-          <FlatList
-            data={filteredPosts}
-            keyExtractor={(item) => item.postid.toString()}
-            contentContainerStyle={styles.list}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
-                {item.image_url && (
-                  <Image source={{ uri: item.image_url }} style={styles.cardImage} />
-                )}
-                <Text style={styles.postTitle}>{item.title}</Text>
-                <Text style={styles.postAuthor}>by {item.displayname}</Text>
-                <Text style={styles.postDetail}>📍 {item.location}</Text>
-                <Text style={styles.postDetail}>
-                  🕐{' '}
-                  {item.start_time
-                    ? new Date(item.start_time.replace('Z', '')).toLocaleString()
-                    : 'No time set'}
-                </Text>
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No events match your search.</Text>
-            }
-          />
+          <View style={styles.postCardsContainer}>
+            <FlatList
+              data={filteredPosts}
+              keyExtractor={(item) => item.postid.toString()}
+              contentContainerStyle={styles.list}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
+                  {item.image_url && (
+                    <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+                  )}
+                  <Text style={styles.postTitle}>{item.title}</Text>
+                  <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                  <Text style={styles.postDetail}>📍 {item.location}</Text>
+                  <Text style={styles.postDetail}>
+                    🕐{' '}
+                    {item.start_time
+                      ? new Date(item.start_time.replace('Z', '')).toLocaleString()
+                      : 'No time set'}
+                  </Text>
+                </Pressable>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No events match your search.</Text>
+              }
+            />
+          </View>
         )
       ) : (
         <View style={styles.mapSection}>
@@ -634,14 +636,17 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#e8f3f8',
     paddingTop: 64,
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
+    alignContent: 'center',
   },
   title: {
-    fontSize: 30,
+    fontSize: 40,
     fontWeight: '700',
-    marginBottom: 16,
+    margin: 8,
+    marginTop: 36,
+    marginBottom: 36,
   },
   searchRow: {
     flexDirection: 'row',
@@ -651,8 +656,8 @@ const styles = StyleSheet.create({
   searchBar: {
     flex: 1,
     height: 48,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 24,
+    backgroundColor: '#fff',
+    borderRadius: 16,
     paddingHorizontal: 16,
     fontSize: 15,
     borderWidth: 1,
@@ -663,25 +668,33 @@ const styles = StyleSheet.create({
     height: 48,
     width: 48,
     borderRadius: 12,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#7eacc3',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    // borderWidth: 1,
+    // borderColor: '#e5e7eb',
   },
   loaderLarge: {
     marginTop: 24,
+  },
+  postCardsContainer: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
   list: {
     gap: 12,
     paddingBottom: 100,
   },
   postCard: {
-    borderWidth: 1,
+    borderWidth: 0,
     borderColor: '#e5e7eb',
     borderRadius: 12,
-    padding: 14,
-    backgroundColor: '#f9fafb',
+    padding: 25,
+    backgroundColor: '#cce6f7',
   },
   cardImage: {
     width: '100%',
