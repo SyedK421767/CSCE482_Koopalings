@@ -159,7 +159,7 @@ export default function ChatScreen() {
       const data = (await res.json()) as Conversation[];
       setConversations(data);
 
-      if (data.length === 0) {
+      if (data.length === 0 && !selectedConversationRef.current) {
         setSelectedConversationId(null);
         setMessages([]);
       }
