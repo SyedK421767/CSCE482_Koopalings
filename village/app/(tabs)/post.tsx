@@ -17,6 +17,8 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 
+import { getPostAuthorDisplayName, useAuth } from '@/context/auth-context';
+
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
@@ -38,6 +40,8 @@ interface PlaceSuggestion {
 type PollType = 'multiple-choice' | 'checkbox' | 'short-answer';
 
 export default function PostScreen() {
+  const { currentUser } = useAuth();
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [address, setAddress] = useState('');
@@ -292,6 +296,11 @@ export default function PostScreen() {
     .map((tag) => tag.name);
 
   const handleSubmit = async () => {
+    if (!currentUser) {
+      Alert.alert('Not signed in', 'Please sign in to create an event.');
+      return;
+    }
+
     if (!title.trim() || !description.trim() || !address.trim()) {
       Alert.alert('Missing fields', 'Please fill in title, description, and location.');
       return;
@@ -324,12 +333,14 @@ export default function PostScreen() {
         }
       }
 
-      await fetch(`${API_URL}/posts`, {
+      const displayName = getPostAuthorDisplayName(currentUser);
+
+      const res = await fetch(`${API_URL}/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userID: 1,
-          displayname: 'SyedK',
+          userID: currentUser.userid,
+          displayname: displayName,
           title: title.trim(),
           description: description.trim(),
           location: address.trim(),
@@ -358,6 +369,12 @@ export default function PostScreen() {
             : null,
         }),
       });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        Alert.alert('Error', payload?.error ?? 'Could not create this event. Please try again.');
+        return;
+      }
 
       Alert.alert('Success', 'Your post has been created!');
 
