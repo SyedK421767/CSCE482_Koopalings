@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
@@ -19,22 +20,28 @@ export default function HomeScreen() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [activeTab, setActiveTab] = useState<'Events' | 'Hobbies'>('Events');
 
-const fetchPosts = async () => {
-  try {
-    const response = await fetch(`${API_URL}/posts`);
-    const data = await response.json();
-    console.log('First post:', JSON.stringify(data[0]));  // add this
-    setPosts(data);
-  } catch (err) {
-    console.error('Failed to fetch posts:', err);
-  } finally {
-    setLoading(false);
-  }
-};
-
-  useEffect(() => {
-    fetchPosts();
+  const fetchPosts = useCallback(async (withSpinner: boolean) => {
+    if (withSpinner) setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/posts`);
+      const data = await response.json();
+      setPosts(data);
+    } catch (err) {
+      console.error('Failed to fetch posts:', err);
+    } finally {
+      if (withSpinner) setLoading(false);
+    }
   }, []);
+
+  const homeHasLoadedOnce = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      const showSpinner = !homeHasLoadedOnce.current;
+      homeHasLoadedOnce.current = true;
+      void fetchPosts(showSpinner);
+    }, [fetchPosts])
+  );
 
   return (
     <View style={styles.container}>

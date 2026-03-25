@@ -10,6 +10,18 @@ export type AuthUser = {
   tags?: { tagid: number; name: string }[];
 };
 
+/**
+ * Display name for posts/events — no hardcoded fallbacks except a stable id-based label
+ * when profile has no name or email (should be rare after registration).
+ */
+export function getPostAuthorDisplayName(user: AuthUser): string {
+  const fullName = [user.first_name?.trim(), user.last_name?.trim()].filter(Boolean).join(' ').trim();
+  if (fullName.length > 0) return fullName;
+  const email = user.email?.trim();
+  if (email) return email;
+  return `User ${user.userid}`;
+}
+
 type AuthContextType = {
   isSignedIn: boolean;
   setIsSignedIn: (value: boolean) => void;

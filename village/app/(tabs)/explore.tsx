@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   FlatList,
@@ -103,7 +104,8 @@ export default function ExploreScreen() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async (withSpinner: boolean) => {
+    if (withSpinner) setLoadingPosts(true);
     try {
       const response = await fetch(`${API_URL}/posts`);
       const data = await response.json();
@@ -111,11 +113,11 @@ export default function ExploreScreen() {
     } catch (err) {
       console.error('Failed to fetch posts:', err);
     } finally {
-      setLoadingPosts(false);
+      if (withSpinner) setLoadingPosts(false);
     }
-  };
+  }, []);
 
-  const fetchTags = async () => {
+  const fetchTags = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/tags`);
       const data = await response.json();
@@ -123,9 +125,9 @@ export default function ExploreScreen() {
     } catch (err) {
       console.error('Failed to fetch tags:', err);
     }
-  };
+  }, []);
 
-  const fetchPostTags = async () => {
+  const fetchPostTags = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/tags/post-tags`);
       const data = await response.json();
@@ -133,7 +135,7 @@ export default function ExploreScreen() {
     } catch (err) {
       console.error('Failed to fetch post-tags:', err);
     }
-  };
+  }, []);
 
   const requestAndFetchLocation = async () => {
     setIsLoadingLocation(true);
@@ -158,10 +160,19 @@ export default function ExploreScreen() {
     }
   };
 
+  const exploreHasLoadedOnce = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      const showSpinner = !exploreHasLoadedOnce.current;
+      exploreHasLoadedOnce.current = true;
+      void fetchPosts(showSpinner);
+      void fetchTags();
+      void fetchPostTags();
+    }, [fetchPosts, fetchTags, fetchPostTags])
+  );
+
   useEffect(() => {
-    fetchPosts();
-    fetchTags();
-    fetchPostTags();
     requestAndFetchLocation();
   }, []);
 
