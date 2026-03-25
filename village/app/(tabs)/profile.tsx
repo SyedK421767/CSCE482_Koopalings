@@ -196,8 +196,10 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
-    backgroundColor: '#fff',
+    backgroundColor: '#e8f3f8',
+    paddingTop: 64,
+    paddingHorizontal: 10,
+    alignContent: 'center',
   },
   title: {
     fontSize: 30,
@@ -217,6 +219,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563eb',
     alignItems: 'center',
     justifyContent: 'center',
+    margin: 16,
   },
   name: {
     fontSize: 24,
@@ -228,16 +231,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   hobbiesBox: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    // borderWidth: 1,
+    // borderColor: '#e5e7eb',
     borderRadius: 16,
     padding: 16,
-    backgroundColor: '#fafafa',
+    backgroundColor: '#fff',
     marginBottom: 12,
+    // height: 500,
   },
   currentHobbiesBox: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    // borderWidth: 1,
+    // borderColor: '#e5e7eb',
     borderRadius: 16,
     padding: 16,
     backgroundColor: '#fff',
@@ -260,11 +264,11 @@ const styles = StyleSheet.create({
   hobbyPill: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
+    borderRadius: 10,
+    // borderWidth: 1,
     borderColor: '#e5e7eb',
-    backgroundColor: '#fff',
     marginRight: 8,
+    backgroundColor: '#e5eef4',
   },
   hobbyText: {
     color: '#111827',
@@ -276,17 +280,17 @@ const styles = StyleSheet.create({
   },
   hobbySelected: {
     borderColor: '#2563eb',
-    backgroundColor: '#e0ebff',
+    backgroundColor: '#7eacc3',
   },
   hobbySelectedText: {
-    color: '#1d4ed8',
+    color: '#fff',
   },
   hobbyButtonsRow: {
     flexDirection: 'row',
   },
   saveHobbyButton: {
     flex: 1,
-    backgroundColor: '#2563eb',
+    backgroundColor: '#7eacc3',
     paddingVertical: 10,
     borderRadius: 10,
     alignItems: 'center',
@@ -316,11 +320,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#dc2626',
     borderRadius: 12,
     paddingVertical: 14,
+    alignSelf: 'center',
     alignItems: 'center',
+    width: '50%',
   },
   logoutText: {
     color: '#fff',
     fontSize: 16,
+    // color: '#6b7280',
+  },
+  card: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 20,
+    backgroundColor: '#f9fafb',
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 16,
+    alignSelf: 'center',
+  },
+  label: {
+    fontSize: 12,
     fontWeight: '600',
+    color: '#6b7280',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  value: {
+    fontSize: 16,
+    color: '#111827',
   },
 });

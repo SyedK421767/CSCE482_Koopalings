@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import http from 'http';
 import postsRouter from './routes/posts';
 import usersRouter from './routes/users';
+import profilesRouter from './routes/profiles';
 import uploadRouter from './routes/upload';
 import chatRouter from './routes/chat';
 import { initChatWebSocket } from './chat/wsHub';
@@ -21,6 +22,7 @@ app.use(express.json());
 
 app.use('/posts', postsRouter);
 app.use('/users', usersRouter);
+app.use('/profiles', profilesRouter);
 app.use('/upload', uploadRouter);
 app.use('/chat', chatRouter);
 app.use('/tags', tagsRouter);
