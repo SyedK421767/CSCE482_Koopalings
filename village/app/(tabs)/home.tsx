@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
+import { formatEventStartForDisplay } from '@/lib/event-datetime';
+
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
 type Post = {
@@ -78,9 +80,7 @@ export default function HomeScreen() {
                   <Text style={styles.postTitle}>{item.title}</Text>
                   <Text style={styles.postAuthor}>by {item.displayname}</Text>
                   <Text style={styles.postDetail}>📍 {item.location}</Text>
-                  <Text style={styles.postDetail}>
-                    🕐 {item.start_time ? new Date(item.start_time.replace('Z', '')).toLocaleString() : 'No time set'}
-                  </Text>
+                  <Text style={styles.postDetail}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
                 </Pressable>
               )}
             />
@@ -135,7 +135,7 @@ export default function HomeScreen() {
 
                 <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
                 <Text style={styles.modalDetail}>
-                  🕐 {selectedPost.start_time ? new Date(selectedPost.start_time.replace('Z', '')).toLocaleString() : 'No time set'}
+                  🕐 {formatEventStartForDisplay(selectedPost.start_time)}
                 </Text>
 
                 <View style={styles.divider} />

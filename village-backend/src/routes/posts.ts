@@ -20,7 +20,10 @@ router.get('/', async (req: Request, res: Response) => {
     const result = await pool.query(`
       SELECT p.PostID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
       FROM Posts p
-      ORDER BY p.DateAndTime DESC
+      ORDER BY
+        (p.Start_Time < NOW()) ASC,
+        p.Start_Time ASC NULLS LAST,
+        p.PostID ASC
     `);
     res.json(result.rows);
   } catch (err) {

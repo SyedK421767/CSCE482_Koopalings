@@ -309,12 +309,15 @@ export default function PostScreen() {
     setLoading(true);
 
     try {
+      // Local calendar date + wall-clock time from pickers → one instant, then ISO UTC for the API.
       const combinedDateTime = new Date(
         date.getFullYear(),
         date.getMonth(),
         date.getDate(),
         time.getHours(),
-        time.getMinutes()
+        time.getMinutes(),
+        time.getSeconds(),
+        time.getMilliseconds()
       );
 
       let imageUrl: string | null = null;

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+
+import { formatEventStartForDisplay, parseEventStart } from '@/lib/event-datetime';
 import {
   ActivityIndicator,
   FlatList,
@@ -196,9 +198,8 @@ export default function ExploreScreen() {
 
       const matchesCreator = !creatorQuery || creator.includes(creatorQuery);
 
-      const matchesUpcoming =
-        !upcomingOnly ||
-        (post.start_time && new Date(post.start_time.replace('Z', '')) >= now);
+      const start = parseEventStart(post.start_time);
+      const matchesUpcoming = !upcomingOnly || (start != null && start.getTime() >= now.getTime());
 
       const matchesImage = !hasImageOnly || !!post.image_url;
 
@@ -362,7 +363,7 @@ export default function ExploreScreen() {
                 <Text style={styles.postDetail}>
                   🕐{' '}
                   {item.start_time
-                    ? new Date(item.start_time.replace('Z', '')).toLocaleString()
+                    ? formatEventStartForDisplay(item.start_time)
                     : 'No time set'}
                 </Text>
               </Pressable>
@@ -487,7 +488,7 @@ export default function ExploreScreen() {
                 <Text style={styles.modalDetail}>
                   🕐{' '}
                   {selectedPost.start_time
-                    ? new Date(selectedPost.start_time.replace('Z', '')).toLocaleString()
+                    ? formatEventStartForDisplay(selectedPost.start_time)
                     : 'No time set'}
                 </Text>
 
