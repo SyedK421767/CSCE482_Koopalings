@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
 import { useAuth } from '@/context/auth-context';
-import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, RsvpInfo, toggleRsvp } from '@/lib/rsvp-api';
+import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, getUserRsvps, RsvpInfo, toggleRsvp } from '@/lib/rsvp-api';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
@@ -24,16 +24,22 @@ export default function HomeScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [activeTab, setActiveTab] = useState<'Events' | 'Hobbies'>('Events');
+  const [activeTab, setActiveTab] = useState<'Events' | 'RSVP'>('Events');
   const [rsvpInfo, setRsvpInfo] = useState<RsvpInfo | null>(null);
   const [userRsvped, setUserRsvped] = useState(false);
   const [rsvpLoading, setRsvpLoading] = useState(false);
   const [guestListModalVisible, setGuestListModalVisible] = useState(false);
+  const [rsvpedPosts, setRsvpedPosts] = useState<Post[]>([]);
+  const [rsvpedLoading, setRsvpedLoading] = useState(false);
 
   const fetchPosts = useCallback(async (withSpinner: boolean) => {
     if (withSpinner) setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/posts`);
+      // If user has selected interests, filter posts by those interests
+      const url = currentUser?.userid
+        ? `${API_URL}/posts?userid=${currentUser.userid}`
+        : `${API_URL}/posts`;
+      const response = await fetch(url);
       const data = await response.json();
       setPosts(data);
     } catch (err) {
@@ -41,7 +47,7 @@ export default function HomeScreen() {
     } finally {
       if (withSpinner) setLoading(false);
     }
-  }, []);
+  }, [currentUser]);
 
   const fetchRsvpInfo = useCallback(async (postid: number) => {
     if (!currentUser) return;
@@ -55,6 +61,19 @@ export default function HomeScreen() {
     }
   }, [currentUser]);
 
+  const fetchRsvpedPosts = useCallback(async () => {
+    if (!currentUser) return;
+    setRsvpedLoading(true);
+    try {
+      const posts = await getUserRsvps(currentUser.userid);
+      setRsvpedPosts(posts);
+    } catch (err) {
+      console.error('Failed to fetch RSVP\'d posts:', err);
+    } finally {
+      setRsvpedLoading(false);
+    }
+  }, [currentUser]);
+
   const handleToggleRsvp = async () => {
     if (!currentUser || !selectedPost) return;
     setRsvpLoading(true);
@@ -62,6 +81,10 @@ export default function HomeScreen() {
       const result = await toggleRsvp(selectedPost.postid, currentUser.userid);
       setUserRsvped(result.rsvped);
       await fetchRsvpInfo(selectedPost.postid);
+      // Refresh RSVP'd posts list if on RSVP tab
+      if (activeTab === 'RSVP') {
+        await fetchRsvpedPosts();
+      }
     } catch (err) {
       console.error('Failed to toggle RSVP:', err);
     } finally {
@@ -90,8 +113,18 @@ export default function HomeScreen() {
       const showSpinner = !homeHasLoadedOnce.current;
       homeHasLoadedOnce.current = true;
       void fetchPosts(showSpinner);
-    }, [fetchPosts])
+      if (currentUser) {
+        void fetchRsvpedPosts();
+      }
+    }, [fetchPosts, fetchRsvpedPosts, currentUser])
   );
+
+  // Fetch RSVP'd posts when switching to RSVP tab
+  useEffect(() => {
+    if (activeTab === 'RSVP' && currentUser) {
+      void fetchRsvpedPosts();
+    }
+  }, [activeTab, currentUser, fetchRsvpedPosts]);
 
   return (
     <View style={styles.container}>
@@ -104,9 +137,9 @@ export default function HomeScreen() {
         </Pressable>
 
         <Pressable
-          style={[styles.tabButton, activeTab === 'Hobbies' && styles.activeTabButton]}
-          onPress={() => setActiveTab('Hobbies')}>
-          <Text style={[styles.tabText, activeTab === 'Hobbies' && styles.activeTabText]}>Hobbies</Text>
+          style={[styles.tabButton, activeTab === 'RSVP' && styles.activeTabButton]}
+          onPress={() => setActiveTab('RSVP')}>
+          <Text style={[styles.tabText, activeTab === 'RSVP' && styles.activeTabText]}>My RSVPs</Text>
         </Pressable>
       </View>
 
@@ -135,28 +168,35 @@ export default function HomeScreen() {
           </View>
         )
       ) : (
-        <View style={styles.hobbiesContainer}>
-          <Text style={styles.hobbiesText}>Pick a hobby</Text>
-          <View style={styles.hobbiesGrid}>
-            <Pressable style={styles.hobbyButton}>
-              <Text style={styles.hobbyButtonText}>Sports ⚽️</Text>
-            </Pressable>
-            <Pressable style={styles.hobbyButton}>
-              <Text style={styles.hobbyButtonText}>Gaming 🎮</Text>
-            </Pressable>
-            <Pressable style={styles.hobbyButton}>
-              <Text style={styles.hobbyButtonText}>Music 🎵</Text>
-            </Pressable>
-            <Pressable style={styles.hobbyButton}>
-              <Text style={styles.hobbyButtonText}>Art 🎨</Text>
-            </Pressable>
-            <Pressable style={styles.hobbyButton}>
-              <Text style={styles.hobbyButtonText}>Fitness 💪</Text>
-            </Pressable>
-            <Pressable style={styles.hobbyButton}>
-              <Text style={styles.hobbyButtonText}>Study 📚</Text>
-            </Pressable>
-          </View>
+        <View style={styles.eventsContainer}>
+          <Text style={styles.containerHeader}>My RSVPs ✓</Text>
+          {rsvpedLoading ? (
+            <ActivityIndicator size="large" color="#111827" />
+          ) : rsvpedPosts.length > 0 ? (
+            <FlatList
+              data={rsvpedPosts}
+              keyExtractor={(item) => item.postid.toString()}
+              contentContainerStyle={styles.list}
+              renderItem={({ item }) => (
+                <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
+                  {item.image_url && (
+                    <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+                  )}
+                  <Text style={styles.postTitle}>{item.title}</Text>
+                  <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                  <Text style={styles.postDetail}>📍 {item.location}</Text>
+                  <Text style={styles.postDetail}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
+                </Pressable>
+              )}
+            />
+          ) : (
+            <View style={styles.emptyRsvpContainer}>
+              <Text style={styles.emptyRsvpText}>You haven't RSVP'd to any events yet</Text>
+              <Text style={styles.emptyRsvpSubtext}>
+                Browse events in the Events tab and tap RSVP to add them here
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -357,34 +397,25 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     width: '100%',
   },
-  hobbiesContainer: {
+  emptyRsvpContainer: {
     flex: 1,
-    width: '100%',
-    backgroundColor: '#fff',
-    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 60,
   },
-  hobbiesText: {
+  emptyRsvpText: {
     fontSize: 18,
     fontWeight: '600',
     color: '#374151',
     marginBottom: 12,
+    textAlign: 'center',
   },
-  hobbiesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  hobbyButton: {
-    width: '48%',
-    backgroundColor: '#e5eef4',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  hobbyButtonText: {
+  emptyRsvpSubtext: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#374151',
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 22,
   },
   postCard: {
     borderWidth: 0,

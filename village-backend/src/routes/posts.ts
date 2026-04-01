@@ -14,17 +14,38 @@ router.get('/tags', async (req: Request, res: Response) => {
   }
 });
 
-// GET all posts
+// GET all posts (optionally filtered by user's interests)
 router.get('/', async (req: Request, res: Response) => {
+  const { userid } = req.query;
+
   try {
-    const result = await pool.query(`
-      SELECT p.PostID, p.UserID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
-      FROM Posts p
-      ORDER BY
-        (p.Start_Time < NOW()) ASC,
-        p.Start_Time ASC NULLS LAST,
-        p.PostID ASC
-    `);
+    let result;
+
+    if (userid) {
+      // Filter posts by user's interested tags
+      result = await pool.query(`
+        SELECT DISTINCT p.PostID, p.UserID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
+        FROM Posts p
+        INNER JOIN post_tags pt ON p.PostID = pt.postid
+        INNER JOIN user_tags ut ON pt.tagid = ut.tagid
+        WHERE ut.userid = $1
+        ORDER BY
+          (p.Start_Time < NOW()) ASC,
+          p.Start_Time ASC NULLS LAST,
+          p.PostID ASC
+      `, [userid]);
+    } else {
+      // Return all posts if no userid provided
+      result = await pool.query(`
+        SELECT p.PostID, p.UserID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
+        FROM Posts p
+        ORDER BY
+          (p.Start_Time < NOW()) ASC,
+          p.Start_Time ASC NULLS LAST,
+          p.PostID ASC
+      `);
+    }
+
     res.json(result.rows);
   } catch (err) {
     console.error(err);
