@@ -18,7 +18,7 @@ router.get('/tags', async (req: Request, res: Response) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`
-      SELECT p.PostID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
+      SELECT p.PostID, p.UserID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
       FROM Posts p
       ORDER BY
         (p.Start_Time < NOW()) ASC,

@@ -1,13 +1,16 @@
-import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
+import { useAuth } from '@/context/auth-context';
+import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, RsvpInfo, toggleRsvp } from '@/lib/rsvp-api';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
 type Post = {
   postid: number;
+  userid: number;
   title: string;
   displayname: string;
   location: string;
@@ -17,10 +20,15 @@ type Post = {
 };
 
 export default function HomeScreen() {
+  const { currentUser } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [activeTab, setActiveTab] = useState<'Events' | 'Hobbies'>('Events');
+  const [rsvpInfo, setRsvpInfo] = useState<RsvpInfo | null>(null);
+  const [userRsvped, setUserRsvped] = useState(false);
+  const [rsvpLoading, setRsvpLoading] = useState(false);
+  const [guestListModalVisible, setGuestListModalVisible] = useState(false);
 
   const fetchPosts = useCallback(async (withSpinner: boolean) => {
     if (withSpinner) setLoading(true);
@@ -34,6 +42,46 @@ export default function HomeScreen() {
       if (withSpinner) setLoading(false);
     }
   }, []);
+
+  const fetchRsvpInfo = useCallback(async (postid: number) => {
+    if (!currentUser) return;
+    try {
+      const info = await getRsvpInfo(postid, currentUser.userid);
+      setRsvpInfo(info);
+      const rsvped = await checkRsvpStatus(postid, currentUser.userid);
+      setUserRsvped(rsvped);
+    } catch (err) {
+      console.error('Failed to fetch RSVP info:', err);
+    }
+  }, [currentUser]);
+
+  const handleToggleRsvp = async () => {
+    if (!currentUser || !selectedPost) return;
+    setRsvpLoading(true);
+    try {
+      const result = await toggleRsvp(selectedPost.postid, currentUser.userid);
+      setUserRsvped(result.rsvped);
+      await fetchRsvpInfo(selectedPost.postid);
+    } catch (err) {
+      console.error('Failed to toggle RSVP:', err);
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedPost) {
+      void fetchRsvpInfo(selectedPost.postid);
+    } else {
+      setRsvpInfo(null);
+      setUserRsvped(false);
+      setGuestListModalVisible(false);
+    }
+  }, [selectedPost, fetchRsvpInfo]);
+
+  useEffect(() => {
+    console.log('Guest list modal visible:', guestListModalVisible);
+  }, [guestListModalVisible]);
 
   const homeHasLoadedOnce = useRef(false);
 
@@ -118,35 +166,135 @@ export default function HomeScreen() {
         transparent
         onRequestClose={() => setSelectedPost(null)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Pressable style={styles.closeButton} onPress={() => setSelectedPost(null)}>
-              <Text style={styles.closeButtonText}>✕</Text>
-            </Pressable>
+          <ScrollView contentContainerStyle={styles.modalScrollContent}>
+            <View style={styles.modalContent}>
+              <Pressable style={styles.closeButton} onPress={() => setSelectedPost(null)}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </Pressable>
 
-            {selectedPost && (
-              <>
-                {selectedPost.image_url && (
-                  <Image source={{ uri: selectedPost.image_url }} style={styles.modalImage} />
-                )}
-                <Text style={styles.modalTitle}>{selectedPost.title}</Text>
-                <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
+              {selectedPost && (
+                <>
+                  {selectedPost.image_url && (
+                    <Image source={{ uri: selectedPost.image_url }} style={styles.modalImage} />
+                  )}
+                  <Text style={styles.modalTitle}>{selectedPost.title}</Text>
+                  <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
 
-                <View style={styles.divider} />
+                  <View style={styles.divider} />
 
-                <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
-                <Text style={styles.modalDetail}>
-                  🕐 {formatEventStartForDisplay(selectedPost.start_time)}
-                </Text>
+                  <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
+                  <Text style={styles.modalDetail}>
+                    🕐 {formatEventStartForDisplay(selectedPost.start_time)}
+                  </Text>
 
-                <View style={styles.divider} />
+                  <View style={styles.divider} />
 
-                <Text style={styles.descriptionLabel}>About this event</Text>
-                <Text style={styles.description}>
-                  {selectedPost.description || 'No description provided.'}
-                </Text>
-              </>
-            )}
-          </View>
+                  {/* RSVP Section */}
+                  {currentUser && selectedPost && (
+                    <>
+                      <View style={styles.rsvpSection}>
+                        {currentUser.userid === selectedPost.userid ? (
+                          // Owner view - only show guest list button
+                          <>
+                            <Pressable
+                              style={styles.guestListButton}
+                              onPress={() => {
+                                console.log('Guest list button pressed');
+                                setGuestListModalVisible(true);
+                              }}>
+                              <Text style={styles.guestListButtonText}>
+                                👥 View Guest List
+                                {rsvpInfo && rsvpInfo.isOwner && ` (${rsvpInfo.count})`}
+                              </Text>
+                            </Pressable>
+                          </>
+                        ) : (
+                          // Non-owner view - show RSVP button and category
+                          <>
+                            <Pressable
+                              style={[styles.rsvpButton, userRsvped && styles.rsvpButtonActive]}
+                              onPress={handleToggleRsvp}
+                              disabled={rsvpLoading}>
+                              {rsvpLoading ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <Text style={styles.rsvpButtonText}>
+                                  {userRsvped ? '✓ Attending' : 'RSVP'}
+                                </Text>
+                              )}
+                            </Pressable>
+
+                            {rsvpInfo && !rsvpInfo.isOwner && (
+                              <View style={styles.rsvpInfoContainer}>
+                                <Text style={styles.rsvpCategoryText}>
+                                  👥 {formatRsvpCategory(rsvpInfo.category)}
+                                </Text>
+                              </View>
+                            )}
+                          </>
+                        )}
+                      </View>
+
+                      <View style={styles.divider} />
+                    </>
+                  )}
+
+                  <Text style={styles.descriptionLabel}>About this event</Text>
+                  <Text style={styles.description}>
+                    {selectedPost.description || 'No description provided.'}
+                  </Text>
+                </>
+              )}
+
+              {/* Guest List Overlay - shows inside event modal */}
+              {guestListModalVisible && (
+                <View style={styles.guestListOverlay}>
+                  <View style={styles.guestListModal}>
+                    <View style={styles.guestListModalHeader}>
+                      <Text style={styles.guestListModalTitle}>Guest List</Text>
+                      <Pressable
+                        onPress={() => {
+                          console.log('Close button pressed');
+                          setGuestListModalVisible(false);
+                        }}>
+                        <Text style={styles.closeButtonText}>✕</Text>
+                      </Pressable>
+                    </View>
+
+                    {rsvpInfo && rsvpInfo.isOwner ? (
+                      rsvpInfo.guests.length > 0 ? (
+                        <ScrollView style={styles.guestListScrollView}>
+                          {rsvpInfo.guests.map((guest) => (
+                            <View key={guest.rsvpid} style={styles.guestListItem}>
+                              <View style={styles.guestAvatarPlaceholder}>
+                                <Text style={styles.guestAvatarText}>
+                                  {guest.first_name?.[0]?.toUpperCase() || '?'}
+                                </Text>
+                              </View>
+                              <View style={styles.guestInfo}>
+                                <Text style={styles.guestName}>
+                                  {guest.first_name} {guest.last_name}
+                                </Text>
+                                
+                              </View>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      ) : (
+                        <View style={styles.emptyGuestList}>
+                          <Text style={styles.emptyGuestListText}>No one has RSVP'd yet</Text>
+                        </View>
+                      )
+                    ) : (
+                      <View style={styles.emptyGuestList}>
+                        <Text style={styles.emptyGuestListText}>Loading...</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -274,12 +422,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
   modalContent: {
     backgroundColor: '#cce6f7',
     borderRadius: 16,
     padding: 24,
     width: '100%',
-    maxHeight: '80%',
   },
   closeButton: {
     alignSelf: 'flex-end',
@@ -327,5 +478,149 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#4b5563',
     lineHeight: 22,
+  },
+  rsvpSection: {
+    marginVertical: 8,
+  },
+  rsvpButton: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  rsvpButtonActive: {
+    backgroundColor: '#16a34a',
+  },
+  rsvpButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  rsvpInfoContainer: {
+    backgroundColor: '#e5eef4',
+    padding: 12,
+    borderRadius: 8,
+  },
+  rsvpCountText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  rsvpCategoryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  guestList: {
+    marginTop: 8,
+  },
+  guestListTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  guestItem: {
+    fontSize: 14,
+    color: '#4b5563',
+    marginBottom: 4,
+  },
+  guestListButton: {
+    backgroundColor: '#6366f1',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  guestListButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  guestListOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  guestListModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxHeight: '70%',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  guestListModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  guestListModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  guestListScrollView: {
+    maxHeight: 400,
+  },
+  guestListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  guestAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  guestAvatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  guestInfo: {
+    flex: 1,
+  },
+  guestName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  guestEmail: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  emptyGuestList: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyGuestListText: {
+    fontSize: 15,
+    color: '#6b7280',
   },
 });

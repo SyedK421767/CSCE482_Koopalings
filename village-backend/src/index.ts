@@ -9,6 +9,7 @@ import uploadRouter from './routes/upload';
 import chatRouter from './routes/chat';
 import { initChatWebSocket } from './chat/wsHub';
 import tagsRouter from './routes/tags';
+import rsvpsRouter from './routes/rsvps';
 
 
 dotenv.config();
@@ -26,6 +27,7 @@ app.use('/profiles', profilesRouter);
 app.use('/upload', uploadRouter);
 app.use('/chat', chatRouter);
 app.use('/tags', tagsRouter);
+app.use('/rsvps', rsvpsRouter);
 
 async function startServer() {
   try {
