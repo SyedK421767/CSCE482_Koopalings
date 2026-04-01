@@ -22,13 +22,13 @@ router.get('/', async (req: Request, res: Response) => {
     let result;
 
     if (userid) {
-      // Filter posts by user's interested tags
+      // Filter posts by user's interested tags OR posts created by the user
       result = await pool.query(`
         SELECT DISTINCT p.PostID, p.UserID, p.Title, p.DisplayName, p.Location, p.Start_Time, p.Description, p.Image_URL, p.Latitude, p.Longitude
         FROM Posts p
-        INNER JOIN post_tags pt ON p.PostID = pt.postid
-        INNER JOIN user_tags ut ON pt.tagid = ut.tagid
-        WHERE ut.userid = $1
+        LEFT JOIN post_tags pt ON p.PostID = pt.postid
+        LEFT JOIN user_tags ut ON pt.tagid = ut.tagid AND ut.userid = $1
+        WHERE ut.userid = $1 OR p.UserID = $1
         ORDER BY
           (p.Start_Time < NOW()) ASC,
           p.Start_Time ASC NULLS LAST,
