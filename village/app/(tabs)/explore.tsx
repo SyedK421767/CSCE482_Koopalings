@@ -8,6 +8,7 @@ import {
   FlatList,
   Image,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,8 +17,15 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+import MapView, {
+  Circle,
+  Marker,
+  Polygon,
+  Polyline,
+  LatLng,
+} from 'react-native-maps';
 import * as Location from 'expo-location';
-import MapView, { Circle, Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useAuth } from '@/context/auth-context';
@@ -93,6 +101,15 @@ export default function ExploreScreen() {
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [hasImageOnly, setHasImageOnly] = useState(false);
 
+  // Map Boundaries
+  const mapRef = useRef<MapView | null>(null);
+  const [isDrawingBoundary, setIsDrawingBoundary] = useState(false);
+  const [boundaryPoints, setBoundaryPoints] = useState<LatLng[]>([]);
+  const [isCurrentlyTracing, setIsCurrentlyTracing] = useState(false);
+
+  const refreshSpinAnim = useRef(new Animated.Value(0)).current;
+  const refreshSpinLoop = useRef<Animated.CompositeAnimation | null>(null);
+
   // RSVP state
   const [rsvpInfo, setRsvpInfo] = useState<RsvpInfo | null>(null);
   const [userRsvped, setUserRsvped] = useState(false);
@@ -104,6 +121,67 @@ export default function ExploreScreen() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [postTags, setPostTags] = useState<PostTag[]>([]);
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null); // null = "All"
+
+  const appendBoundaryPointFromTouch = useCallback(
+    async (x: number, y: number) => {
+      if (!mapRef.current) return;
+
+      try {
+        const coordinate = await mapRef.current.coordinateForPoint({ x, y });
+        setBoundaryPoints((prev) => {
+          const last = prev[prev.length - 1];
+
+          if (last) {
+            const latDiff = Math.abs(last.latitude - coordinate.latitude);
+            const lngDiff = Math.abs(last.longitude - coordinate.longitude);
+            if (latDiff < 0.00005 && lngDiff < 0.00005) {
+              return prev;
+            }
+          }
+
+          return [...prev, coordinate];
+        });
+      } catch (err) {
+        console.warn('coordinateForPoint failed', err);
+      }
+    },
+    []
+  );
+
+  const drawPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => isDrawingBoundary,
+        onMoveShouldSetPanResponder: () => isDrawingBoundary,
+
+        onPanResponderGrant: async (evt) => {
+          if (!isDrawingBoundary) return;
+          setBoundaryPoints([]);
+          setIsCurrentlyTracing(true);
+
+          const { locationX, locationY } = evt.nativeEvent;
+          await appendBoundaryPointFromTouch(locationX, locationY);
+        },
+
+        onPanResponderMove: async (evt) => {
+          if (!isDrawingBoundary) return;
+
+          const { locationX, locationY } = evt.nativeEvent;
+          await appendBoundaryPointFromTouch(locationX, locationY);
+        },
+
+        onPanResponderRelease: () => {
+          setIsCurrentlyTracing(false);
+          setIsDrawingBoundary(false);
+        },
+
+        onPanResponderTerminate: () => {
+          setIsCurrentlyTracing(false);
+          setIsDrawingBoundary(false);
+        },
+      }),
+    [isDrawingBoundary, appendBoundaryPointFromTouch]
+  );
 
   // Build a lookup: postid -> set of tagids
   const postTagMap = useMemo(() => {
@@ -182,7 +260,23 @@ export default function ExploreScreen() {
         accuracy: Location.Accuracy.High,
       });
 
-      setCoords(position.coords);
+      const nextCoords = position.coords;
+      setCoords(nextCoords);
+
+      if (mapRef.current) {
+        mapRef.current.animateToRegion(
+          {
+            latitude: nextCoords.latitude,
+            longitude: nextCoords.longitude,
+            latitudeDelta: radiusEnabled ? (radiusMeters * 2.4) / 111320 : 0.01,
+            longitudeDelta: radiusEnabled
+              ? (radiusMeters * 2.4) /
+                (111320 * Math.max(Math.cos((nextCoords.latitude * Math.PI) / 180), 0.2))
+              : 0.01,
+          },
+          500
+        );
+      }
     } catch {
       setError('Could not fetch your location. Please try again.');
     } finally {
@@ -257,6 +351,27 @@ export default function ExploreScreen() {
   useEffect(() => {
     requestAndFetchLocation();
   }, []);
+
+  useEffect(() => {
+    if (isLoadingLocation) {
+      refreshSpinAnim.setValue(0);
+
+      refreshSpinLoop.current = Animated.loop(
+        Animated.timing(refreshSpinAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        })
+      );
+
+      refreshSpinLoop.current.start();
+    } else {
+      refreshSpinLoop.current?.stop();
+      refreshSpinLoop.current = null;
+
+      refreshSpinAnim.setValue(0);
+    }
+  }, [isLoadingLocation]);
 
   const filteredPosts = useMemo(() => {
     const searchQuery = searchText.toLowerCase().trim();
@@ -439,75 +554,157 @@ export default function ExploreScreen() {
         )
       ) : (
         <View style={styles.mapSection}>
-          <Pressable
-            style={styles.locationButton}
-            onPress={requestAndFetchLocation}
-            disabled={isLoadingLocation}
-          >
-            <Text style={styles.locationButtonText}>
-              {coords ? 'Refresh Location' : 'Allow Location Access'}
-            </Text>
-          </Pressable>
-
-          {isLoadingLocation ? <ActivityIndicator size="small" style={styles.loader} /> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           {coords && mapRegion ? (
-            <MapView
-              key={mapKey}
-              style={styles.map}
-              initialRegion={mapRegion}
-              showsUserLocation
-            >
-              <Marker
-                tracksViewChanges={false}
-                coordinate={{
-                  latitude: coords.latitude,
-                  longitude: coords.longitude,
+            <View style={styles.mapContainer}>
+              <MapView
+                ref={mapRef}
+                key={mapKey}
+                style={styles.map}
+                initialRegion={mapRegion}
+                showsUserLocation
+                onPress={(e) => {
+                  if (!isDrawingBoundary) return;
+
+                  const coordinate = e.nativeEvent.coordinate;
+                  if (!coordinate) return;
+
+                  setBoundaryPoints((prev) => [...prev, coordinate]);
                 }}
-                title="You are here"
-              />
+              >
 
-              <Circle
-                center={{
-                  latitude: coords.latitude,
-                  longitude: coords.longitude,
-                }}
-                radius={radiusMeters}
-                strokeColor="rgba(29, 78, 216, 0.8)"
-                fillColor="rgba(59, 130, 246, 0.2)"
-              />
-
-              {filteredEventMarkers.map((marker) => {
-                if (
-                  typeof marker.latitude !== 'number' ||
-                  typeof marker.longitude !== 'number'
-                ) {
-                  return null;
-                }
-
-                return (
-                  <Marker
-                    key={marker.postid}
-                    tracksViewChanges={false}
-                    coordinate={{
-                      latitude: marker.latitude,
-                      longitude: marker.longitude,
+                {radiusEnabled && (
+                  <Circle
+                    center={{
+                      latitude: coords.latitude,
+                      longitude: coords.longitude,
                     }}
-                    title={marker.title}
-                    description={marker.location}
-                    pinColor="red"
-                    onPress={() => {
-                      const selected = posts.find((p) => p.postid === marker.postid) || null;
-                      setSelectedPost(selected);
-                    }}
+                    radius={radiusMeters}
+                    strokeColor="rgba(29, 78, 216, 0.8)"
+                    fillColor="rgba(59, 130, 246, 0.2)"
                   />
-                );
-              })}
-            </MapView>
+                )}
+
+                {boundaryPoints.length > 0 && (
+                  <>
+                    {boundaryPoints.map((point, index) => (
+                      <Marker
+                        key={`boundary-${index}`}
+                        coordinate={point}
+                        pinColor="blue"
+                      />
+                    ))}
+
+                    {boundaryPoints.length >= 2 && (
+                      <Polyline
+                        coordinates={boundaryPoints}
+                        strokeColor="#1D4ED8"
+                        strokeWidth={4}
+                      />
+                    )}
+
+                    {boundaryPoints.length >= 3 && !isCurrentlyTracing && (
+                      <Polygon
+                        coordinates={boundaryPoints}
+                        strokeColor="rgba(29, 78, 216, 0.95)"
+                        fillColor="rgba(29, 78, 216, 0.20)"
+                        strokeWidth={2}
+                      />
+                    )}
+                  </>
+                )}
+
+                {filteredEventMarkers.map((marker) => {
+                  if (
+                    typeof marker.latitude !== 'number' ||
+                    typeof marker.longitude !== 'number'
+                  ) {
+                    return null;
+                  }
+
+                  return (
+                    <Marker
+                      key={marker.postid}
+                      tracksViewChanges={false}
+                      coordinate={{
+                        latitude: marker.latitude,
+                        longitude: marker.longitude,
+                      }}
+                      title={marker.title}
+                      description={marker.location}
+                      pinColor="red"
+                      onPress={() => {
+                        const selected =
+                          posts.find((p) => p.postid === marker.postid) || null;
+                        setSelectedPost(selected);
+                      }}
+                    />
+                  );
+                })}
+              </MapView>
+
+              <View style={styles.mapBottomLeftControls}>
+              <Pressable
+                style={styles.mapControlButton}
+                onPress={requestAndFetchLocation}
+              >
+                <Animated.View
+                  style={{
+                    transform: [
+                      {
+                        rotate: refreshSpinAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        }),
+                      },
+                    ],
+                  }}
+                >
+                  <Ionicons name="refresh" size={22} color={COLORS.textPrimary} />
+                </Animated.View>
+              </Pressable>
+
+                <Pressable
+                  style={styles.mapControlButton}
+                  onPress={() => {
+                    setIsDrawingBoundary((prev) => {
+                      const next = !prev;
+                      if (next) setBoundaryPoints([]);
+                      return next;
+                    });
+                  }}
+                >
+                  <Ionicons
+                    name={isDrawingBoundary ? 'checkmark-outline' : 'pencil-outline'}
+                    size={22}
+                    color={COLORS.textPrimary}
+                  />
+                </Pressable>
+
+                <Pressable
+                  style={styles.mapControlButton}
+                  onPress={() => {
+                    if (!coords || !mapRef.current || !mapRegion) return;
+
+                    mapRef.current.animateToRegion(
+                      {
+                        latitude: coords.latitude,
+                        longitude: coords.longitude,
+                        latitudeDelta: mapRegion.latitudeDelta,
+                        longitudeDelta: mapRegion.longitudeDelta,
+                      },
+                      500
+                    );
+                  }}
+                >
+                  <Ionicons name="return-up-back-outline" size={22} color={COLORS.textPrimary} />
+                </Pressable>
+              </View>
+            </View>
           ) : (
             <Text style={styles.caption}>
-              Grant location access to see your 1-mile radius area.
+              Grant location access to see your area on the map.
             </Text>
           )}
         </View>
@@ -1091,6 +1288,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
+  mapControlButtonLoading: {
+    opacity: 0.75,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -1403,5 +1603,34 @@ const styles = StyleSheet.create({
   emptyGuestListText: {
     fontSize: 15,
     color: COLORS.textSecondary,
+  },
+  mapContainer: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+
+  mapBottomLeftControls: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    zIndex: 10,
+    gap: 10,
+  },
+
+  mapControlButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 0,
+    backgroundColor: COLORS.yellow,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: COLORS.shadow,
+    shadowOpacity: 0.25,
+    shadowRadius: 0,
+    shadowOffset: { width: 4, height: 4 },
+    elevation: 6,
+    borderWidth: 3,
+    borderColor: COLORS.yellow,
   },
 });
