@@ -106,7 +106,6 @@ export default function ChatScreen() {
   const [isSelectingChats, setIsSelectingChats] = useState(false);
   const [selectedChatIds, setSelectedChatIds] = useState<number[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
-  const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [showUsersModal, setShowUsersModal] = useState(false);
 
@@ -204,7 +203,6 @@ export default function ChatScreen() {
   const loadMessages = useCallback(
     async (conversationId: number) => {
       try {
-        setLoadingMessages(true);
         const res = await fetch(`${API_URL}/chat/conversations/${conversationId}/messages`);
         if (!res.ok) {
           Alert.alert('Error', 'Could not load messages.');
@@ -220,8 +218,6 @@ export default function ChatScreen() {
       } catch (err) {
         console.error('Failed to load messages:', err);
         Alert.alert('Error', 'Could not load messages.');
-      } finally {
-        setLoadingMessages(false);
       }
     },
     [loadConversations, markConversationRead]
@@ -566,24 +562,17 @@ export default function ChatScreen() {
         </Text>
       </View>
 
-      {loadingMessages ? (
-        <ActivityIndicator color="#111827" style={styles.loadingMessages} />
-      ) : (
-        <FlatList
+      <FlatList
           data={messages}
           keyExtractor={(item) => item.messageid.toString()}
           contentContainerStyle={styles.messageList}
           renderItem={({ item }) => {
             const isMine = item.senderid === userId;
             return (
-              <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
-                <Text style={styles.messageSender}>{formatName(item.first_name, item.last_name)}</Text>
-                <Text style={styles.messageBody}>{item.content}</Text>
-                {isMine && (
-                  <>
-                    <Text style={styles.readReceipt}>
-                      {item.read_at ? `Read ${formatReceiptTime(item.read_at)}` : 'Sent'}
-                    </Text>
+              <View style={isMine ? styles.mineWrapper : styles.theirWrapper}>
+                <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
+                  <Text style={styles.messageBody}>{item.content}</Text>
+                  {isMine && (
                     <View style={styles.messageActions}>
                       <Pressable
                         onPress={() => {
@@ -610,14 +599,18 @@ export default function ChatScreen() {
                         <Text style={styles.actionDeleteText}>Delete</Text>
                       </Pressable>
                     </View>
-                  </>
+                  )}
+                </View>
+                {isMine && (
+                  <Text style={styles.readReceipt}>
+                    {item.read_at ? `Read ${formatReceiptTime(item.read_at)}` : 'Sent'}
+                  </Text>
                 )}
               </View>
             );
           }}
           ListEmptyComponent={<Text style={styles.emptyMessages}>No messages yet.</Text>}
         />
-      )}
 
       {editingMessageId && (
         <View style={styles.editBanner}>
@@ -970,16 +963,22 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     paddingTop: 8,
   },
+  mineWrapper: {
+    alignItems: 'flex-end',
+  },
+  theirWrapper: {
+    alignItems: 'flex-start',
+  },
   messageBubble: {
     borderRadius: 0,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    maxWidth: '88%',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    maxWidth: '92%',
+    minWidth: 120,
     borderWidth: 3,
   },
   mineBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: COLORS.yellow,
+    backgroundColor: COLORS.cardBackground,
     borderColor: COLORS.yellow,
     shadowColor: COLORS.shadow,
     shadowOffset: { width: 3, height: 3 },
@@ -988,7 +987,6 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   theirBubble: {
-    alignSelf: 'flex-start',
     backgroundColor: COLORS.cardBackground,
     borderColor: COLORS.border,
     shadowColor: COLORS.shadow,
@@ -1006,17 +1004,16 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   messageBody: {
-    fontSize: 15,
+    fontSize: 17,
     color: COLORS.textPrimary,
-    fontWeight: '600',
+    fontWeight: '500',
+    lineHeight: 24,
   },
   readReceipt: {
     marginTop: 4,
-    alignSelf: 'flex-end',
     fontSize: 11,
-    color: COLORS.primary,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+    color: COLORS.textLight,
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   messageActions: {
