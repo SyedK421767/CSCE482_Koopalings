@@ -8,6 +8,22 @@ import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, getUserRsvps, RsvpInf
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
+// Color Theme - Modernist colorful palette
+const COLORS = {
+  background: '#062f66',        // Deep navy background
+  cardBackground: '#FFFFFF',    // White cards for contrast
+  primary: '#2743bc',           // Bold blue accent
+  yellow: '#ffbd59',            // Bright yellow accent
+  red: '#e34348',               // Bold red accent
+  cream: '#ffd59a',             // Warm cream accent
+  textPrimary: '#062f66',       // Dark navy text on cards
+  textSecondary: '#5a6c8c',     // Muted blue-gray
+  textLight: '#8892a8',         // Light gray-blue
+  textOnDark: '#FFFFFF',        // White text on dark bg
+  border: '#E5E7EB',            // Borders
+  shadow: '#000000',            // Shadow color
+};
+
 type Post = {
   postid: number;
   userid: number;
@@ -31,6 +47,8 @@ export default function HomeScreen() {
   const [guestListModalVisible, setGuestListModalVisible] = useState(false);
   const [rsvpedPosts, setRsvpedPosts] = useState<Post[]>([]);
   const [rsvpedLoading, setRsvpedLoading] = useState(false);
+  const eventsListRef = useRef<FlatList>(null);
+  const rsvpListRef = useRef<FlatList>(null);
 
   const fetchPosts = useCallback(async (withSpinner: boolean) => {
     if (withSpinner) setLoading(true);
@@ -39,13 +57,20 @@ export default function HomeScreen() {
       const url = currentUser?.userid
         ? `${API_URL}/posts?userid=${currentUser.userid}`
         : `${API_URL}/posts`;
+      console.log('Fetching posts from:', url);
       const response = await fetch(url);
+      if (!response.ok) {
+        console.error('Failed to fetch posts, status:', response.status);
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
+      console.log('Fetched posts count:', data.length);
       setPosts(data);
     } catch (err) {
       console.error('Failed to fetch posts:', err);
+      setPosts([]); // Set empty array on error
     } finally {
-      if (withSpinner) setLoading(false);
+      setLoading(false); // Always turn off loading
     }
   }, [currentUser]);
 
@@ -106,18 +131,22 @@ export default function HomeScreen() {
     console.log('Guest list modal visible:', guestListModalVisible);
   }, [guestListModalVisible]);
 
-  const homeHasLoadedOnce = useRef(false);
-
   useFocusEffect(
     useCallback(() => {
-      const showSpinner = !homeHasLoadedOnce.current;
-      homeHasLoadedOnce.current = true;
-      void fetchPosts(showSpinner);
+      // Refresh posts every time the home tab is focused
+      void fetchPosts(false);
       if (currentUser) {
         void fetchRsvpedPosts();
       }
     }, [fetchPosts, fetchRsvpedPosts, currentUser])
   );
+
+  // Refresh posts when user's tags/hobbies change
+  useEffect(() => {
+    if (currentUser?.tags) {
+      void fetchPosts(false); // Refresh without spinner
+    }
+  }, [currentUser?.tags, fetchPosts]);
 
   // Fetch RSVP'd posts when switching to RSVP tab
   useEffect(() => {
@@ -132,13 +161,19 @@ export default function HomeScreen() {
       <View style={styles.tabRow}>
         <Pressable
           style={[styles.tabButton, activeTab === 'Events' && styles.activeTabButton]}
-          onPress={() => setActiveTab('Events')}>
+          onPress={() => {
+            setActiveTab('Events');
+            eventsListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }}>
           <Text style={[styles.tabText, activeTab === 'Events' && styles.activeTabText]}>Events</Text>
         </Pressable>
 
         <Pressable
           style={[styles.tabButton, activeTab === 'RSVP' && styles.activeTabButton]}
-          onPress={() => setActiveTab('RSVP')}>
+          onPress={() => {
+            setActiveTab('RSVP');
+            rsvpListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }}>
           <Text style={[styles.tabText, activeTab === 'RSVP' && styles.activeTabText]}>My RSVPs</Text>
         </Pressable>
       </View>
@@ -148,11 +183,12 @@ export default function HomeScreen() {
           <ActivityIndicator size="large" color="#111827" />
         ) : (
           <View style={styles.eventsContainer}>
-            <Text style={styles.containerHeader}>Upcoming 📅</Text>
             <FlatList
+              ref={eventsListRef}
               data={posts}
               keyExtractor={(item) => item.postid.toString()}
               contentContainerStyle={styles.list}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
                 <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
                   {item.image_url && (
@@ -161,7 +197,7 @@ export default function HomeScreen() {
                   <Text style={styles.postTitle}>{item.title}</Text>
                   <Text style={styles.postAuthor}>by {item.displayname}</Text>
                   <Text style={styles.postDetail}>📍 {item.location}</Text>
-                  <Text style={styles.postDetail}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
+                  <Text style={[styles.postDetail, { marginBottom: 24 }]}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
                 </Pressable>
               )}
             />
@@ -169,14 +205,15 @@ export default function HomeScreen() {
         )
       ) : (
         <View style={styles.eventsContainer}>
-          <Text style={styles.containerHeader}>My RSVPs ✓</Text>
           {rsvpedLoading ? (
             <ActivityIndicator size="large" color="#111827" />
           ) : rsvpedPosts.length > 0 ? (
             <FlatList
+              ref={rsvpListRef}
               data={rsvpedPosts}
               keyExtractor={(item) => item.postid.toString()}
               contentContainerStyle={styles.list}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
                 <Pressable style={styles.postCard} onPress={() => setSelectedPost(item)}>
                   {item.image_url && (
@@ -185,7 +222,7 @@ export default function HomeScreen() {
                   <Text style={styles.postTitle}>{item.title}</Text>
                   <Text style={styles.postAuthor}>by {item.displayname}</Text>
                   <Text style={styles.postDetail}>📍 {item.location}</Text>
-                  <Text style={styles.postDetail}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
+                  <Text style={[styles.postDetail, { marginBottom: 24 }]}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
                 </Pressable>
               )}
             />
@@ -344,57 +381,69 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e8f3f8',
-    paddingTop: 64,
-    paddingHorizontal: 10,
+    backgroundColor: COLORS.background,
+    paddingTop: 50,
+    paddingHorizontal: 16,
     alignContent: 'center',
   },
   title: {
-    fontSize: 40,
-    fontWeight: '700',
-    margin: 8,
-    marginTop: 36,
-    marginBottom: 36,
+    fontSize: 28,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 12,
+    letterSpacing: -0.5,
+    textTransform: 'uppercase',
   },
   tabRow: {
     flexDirection: 'row',
-    gap: 4,
+    gap: 12,
+    marginBottom: 16,
+    paddingHorizontal: 16,
   },
   tabButton: {
     flex: 1,
-    alignContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    backgroundColor: '#7eacc3',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 0,
+    backgroundColor: COLORS.primary,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
   },
   activeTabButton: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.yellow,
+    borderColor: COLORS.yellow,
+    shadowColor: COLORS.yellow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
   tabText: {
-    color: '#374151',
-    fontSize: 16,
-    fontWeight: '600',
+    color: COLORS.textOnDark,
+    fontSize: 13,
+    fontWeight: '800',
     textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   activeTabText: {
-    color: '#111',
+    color: COLORS.textPrimary,
+    fontWeight: '900',
   },
   eventsContainer: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#fff',
-    padding: 16,
-  },
-  containerHeader: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 16,
+    backgroundColor: 'transparent',
+    paddingVertical: 12,
+    paddingHorizontal: 0,
   },
   list: {
-    gap: 12,
-    paddingBottom: 20,
+    gap: 32,
+    paddingBottom: 40,
+    paddingTop: 12,
     width: '100%',
   },
   emptyRsvpContainer: {
@@ -406,45 +455,71 @@ const styles = StyleSheet.create({
   },
   emptyRsvpText: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '700',
+    color: COLORS.textPrimary,
     marginBottom: 12,
     textAlign: 'center',
   },
   emptyRsvpSubtext: {
     fontSize: 15,
-    color: '#6b7280',
+    color: COLORS.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
   },
   postCard: {
     borderWidth: 0,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 25,
-    backgroundColor: '#cce6f7',
+    borderRadius: 0,
+    padding: 0,
+    backgroundColor: COLORS.cardBackground,
+    overflow: 'hidden',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 0,
+    elevation: 8,
+    marginBottom: 0,
+    borderLeftWidth: 8,
+    borderLeftColor: COLORS.red,
   },
   cardImage: {
     width: '100%',
-    height: 160,
-    borderRadius: 8,
-    marginBottom: 20,
+    height: 200,
+    borderRadius: 0,
+    marginBottom: 0,
+    backgroundColor: COLORS.cream,
   },
   postTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    marginBottom: 10,
+    marginTop: 20,
+    marginHorizontal: 24,
+    letterSpacing: -0.8,
+    lineHeight: 28,
+    textTransform: 'uppercase',
   },
   postAuthor: {
-    fontSize: 14,
-    color: '#4b5563',
-    marginBottom: 4,
+    fontSize: 12,
+    color: COLORS.textOnDark,
+    marginBottom: 16,
+    marginHorizontal: 24,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    fontWeight: '800',
+    backgroundColor: COLORS.primary,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   postDetail: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
-    marginBottom: 2,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginTop: 0,
+    marginBottom: 10,
+    marginHorizontal: 24,
+    lineHeight: 24,
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
@@ -458,8 +533,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalContent: {
-    backgroundColor: '#cce6f7',
-    borderRadius: 16,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
     padding: 24,
     width: '100%',
   },
@@ -469,107 +544,132 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   closeButtonText: {
-    fontSize: 20,
-    color: '#6b7280',
+    fontSize: 24,
+    color: COLORS.textSecondary,
+    fontWeight: '300',
   },
   modalImage: {
     width: '100%',
-    height: 200,
-    borderRadius: 10,
+    height: 220,
+    borderRadius: 0,
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
+    color: COLORS.textPrimary,
+    marginBottom: 6,
+    letterSpacing: -0.5,
   },
   modalAuthor: {
     fontSize: 15,
-    color: '#4b5563',
+    color: COLORS.textSecondary,
     marginBottom: 12,
   },
   divider: {
     borderTopWidth: 1,
-    // borderTopColor: '#e5e7eb',
-    marginVertical: 12,
+    borderTopColor: COLORS.border,
+    marginVertical: 16,
   },
   modalDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 6,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginBottom: 8,
+    lineHeight: 22,
   },
   descriptionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
   },
   description: {
-    fontSize: 14,
-    color: '#4b5563',
-    lineHeight: 22,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    lineHeight: 24,
   },
   rsvpSection: {
     marginVertical: 8,
   },
   rsvpButton: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 12,
+    backgroundColor: COLORS.red,
+    paddingVertical: 16,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 0,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 6,
+    borderWidth: 3,
+    borderColor: COLORS.red,
   },
   rsvpButtonActive: {
-    backgroundColor: '#16a34a',
+    backgroundColor: COLORS.yellow,
+    borderColor: COLORS.yellow,
+    shadowColor: COLORS.yellow,
   },
   rsvpButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   rsvpInfoContainer: {
-    backgroundColor: '#e5eef4',
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: COLORS.background,
+    padding: 14,
+    borderRadius: 0,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   rsvpCountText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#374151',
+    color: COLORS.textOnDark,
     marginBottom: 8,
   },
   rsvpCategoryText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#374151',
+    color: COLORS.textOnDark,
   },
   guestList: {
     marginTop: 8,
   },
   guestListTitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '700',
+    color: COLORS.textOnDark,
     marginBottom: 6,
   },
   guestItem: {
     fontSize: 14,
-    color: '#4b5563',
+    color: COLORS.textOnDark,
     marginBottom: 4,
   },
   guestListButton: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 12,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 16,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 0,
     alignItems: 'center',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 6,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
   },
   guestListButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   guestListOverlay: {
     position: 'absolute',
@@ -583,30 +683,31 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   guestListModal: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    padding: 24,
     width: '90%',
     maxHeight: '70%',
     elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
   },
   guestListModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 12,
+    marginBottom: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: COLORS.border,
   },
   guestListModalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#111827',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
   },
   guestListScrollView: {
     maxHeight: 400,
@@ -614,37 +715,39 @@ const styles = StyleSheet.create({
   guestListItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    marginBottom: 8,
+    padding: 14,
+    backgroundColor: COLORS.background,
+    borderRadius: 0,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   guestAvatarPlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#6366f1',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
   },
   guestAvatarText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   guestInfo: {
     flex: 1,
   },
   guestName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
-    marginBottom: 2,
+    color: COLORS.textPrimary,
+    marginBottom: 3,
   },
   guestEmail: {
     fontSize: 13,
-    color: '#6b7280',
+    color: COLORS.textSecondary,
   },
   emptyGuestList: {
     paddingVertical: 40,
@@ -652,6 +755,6 @@ const styles = StyleSheet.create({
   },
   emptyGuestListText: {
     fontSize: 15,
-    color: '#6b7280',
+    color: COLORS.textSecondary,
   },
 });
