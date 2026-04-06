@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
@@ -49,6 +49,7 @@ export default function HomeScreen() {
   const [rsvpedLoading, setRsvpedLoading] = useState(false);
   const eventsListRef = useRef<FlatList>(null);
   const rsvpListRef = useRef<FlatList>(null);
+  const modalSlideAnim = useRef(new Animated.Value(0)).current;
 
   const fetchPosts = useCallback(async (withSpinner: boolean) => {
     if (withSpinner) setLoading(true);
@@ -117,15 +118,31 @@ export default function HomeScreen() {
     }
   };
 
-  useEffect(() => {
-    if (selectedPost) {
-      void fetchRsvpInfo(selectedPost.postid);
-    } else {
+  const closeModal = () => {
+    // Animate modal out
+    Animated.timing(modalSlideAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setSelectedPost(null);
       setRsvpInfo(null);
       setUserRsvped(false);
       setGuestListModalVisible(false);
+    });
+  };
+
+  useEffect(() => {
+    if (selectedPost) {
+      // Animate modal in
+      Animated.timing(modalSlideAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+      void fetchRsvpInfo(selectedPost.postid);
     }
-  }, [selectedPost, fetchRsvpInfo]);
+  }, [selectedPost, fetchRsvpInfo, modalSlideAnim]);
 
   useEffect(() => {
     console.log('Guest list modal visible:', guestListModalVisible);
@@ -205,9 +222,7 @@ export default function HomeScreen() {
         )
       ) : (
         <View style={styles.eventsContainer}>
-          {rsvpedLoading ? (
-            <ActivityIndicator size="large" color="#111827" />
-          ) : rsvpedPosts.length > 0 ? (
+          {rsvpedPosts.length > 0 ? (
             <FlatList
               ref={rsvpListRef}
               data={rsvpedPosts}
@@ -228,10 +243,14 @@ export default function HomeScreen() {
             />
           ) : (
             <View style={styles.emptyRsvpContainer}>
-              <Text style={styles.emptyRsvpText}>You haven't RSVP'd to any events yet</Text>
-              <Text style={styles.emptyRsvpSubtext}>
-                Browse events in the Events tab and tap RSVP to add them here
+              <Text style={styles.emptyRsvpText}>
+                {rsvpedLoading ? 'Loading...' : "You haven't RSVP'd to any events yet"}
               </Text>
+              {!rsvpedLoading && (
+                <Text style={styles.emptyRsvpSubtext}>
+                  Browse events in the Events tab and tap RSVP to add them here
+                </Text>
+              )}
             </View>
           )}
         </View>
@@ -239,15 +258,36 @@ export default function HomeScreen() {
 
       <Modal
         visible={selectedPost !== null}
-        animationType="slide"
+        animationType="none"
         transparent
-        onRequestClose={() => setSelectedPost(null)}>
-        <View style={styles.modalOverlay}>
+        onRequestClose={closeModal}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={closeModal}>
           <ScrollView contentContainerStyle={styles.modalScrollContent}>
-            <View style={styles.modalContent}>
-              <Pressable style={styles.closeButton} onPress={() => setSelectedPost(null)}>
-                <Text style={styles.closeButtonText}>✕</Text>
-              </Pressable>
+            <Animated.View
+              style={[
+                styles.modalContent,
+                {
+                  transform: [
+                    {
+                      translateY: modalSlideAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [600, 0],
+                      }),
+                    },
+                  ],
+                  opacity: modalSlideAnim,
+                },
+              ]}>
+              <Pressable
+                style={{ flex: 1 }}
+                onPress={(e) => e.stopPropagation()}>
+                <Pressable
+                  style={styles.closeButton}
+                  onPress={closeModal}>
+                  <Text style={styles.closeButtonText}>✕</Text>
+                </Pressable>
 
               {selectedPost && (
                 <>
@@ -370,9 +410,10 @@ export default function HomeScreen() {
                   </View>
                 </View>
               )}
-            </View>
+              </Pressable>
+            </Animated.View>
           </ScrollView>
-        </View>
+        </Pressable>
       </Modal>
     </View>
   );

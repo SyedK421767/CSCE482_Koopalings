@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { formatEventStartForDisplay, parseEventStart } from '@/lib/event-datetime';
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   Modal,
@@ -19,11 +20,30 @@ import * as Location from 'expo-location';
 import MapView, { Circle, Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
+import { useAuth } from '@/context/auth-context';
+import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, RsvpInfo, toggleRsvp } from '@/lib/rsvp-api';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
+// Color Theme - matching home page
+const COLORS = {
+  background: '#062f66',
+  cardBackground: '#FFFFFF',
+  primary: '#2743bc',
+  yellow: '#ffbd59',
+  red: '#e34348',
+  cream: '#ffd59a',
+  textPrimary: '#062f66',
+  textSecondary: '#5a6c8c',
+  textLight: '#8892a8',
+  textOnDark: '#FFFFFF',
+  border: '#E5E7EB',
+  shadow: '#000000',
+};
+
 type Post = {
   postid: number;
+  userid: number;
   title: string;
   displayname: string;
   location: string;
@@ -53,6 +73,7 @@ type EventMarker = {
 };
 
 export default function ExploreScreen() {
+  const { currentUser } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
@@ -71,6 +92,13 @@ export default function ExploreScreen() {
   const [creatorFilter, setCreatorFilter] = useState('');
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [hasImageOnly, setHasImageOnly] = useState(false);
+
+  // RSVP state
+  const [rsvpInfo, setRsvpInfo] = useState<RsvpInfo | null>(null);
+  const [userRsvped, setUserRsvped] = useState(false);
+  const [rsvpLoading, setRsvpLoading] = useState(false);
+  const [guestListModalVisible, setGuestListModalVisible] = useState(false);
+  const modalSlideAnim = useRef(new Animated.Value(0)).current;
 
   // Dynamic tags from DB
   const [tags, setTags] = useState<Tag[]>([]);
@@ -162,6 +190,58 @@ export default function ExploreScreen() {
     }
   };
 
+  const fetchRsvpInfo = useCallback(async (postid: number) => {
+    if (!currentUser) return;
+    try {
+      const info = await getRsvpInfo(postid, currentUser.userid);
+      setRsvpInfo(info);
+      const rsvped = await checkRsvpStatus(postid, currentUser.userid);
+      setUserRsvped(rsvped);
+    } catch (err) {
+      console.error('Failed to fetch RSVP info:', err);
+    }
+  }, [currentUser]);
+
+  const handleToggleRsvp = async () => {
+    if (!currentUser || !selectedPost) return;
+    setRsvpLoading(true);
+    try {
+      const result = await toggleRsvp(selectedPost.postid, currentUser.userid);
+      setUserRsvped(result.rsvped);
+      await fetchRsvpInfo(selectedPost.postid);
+    } catch (err) {
+      console.error('Failed to toggle RSVP:', err);
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
+  const closeModal = () => {
+    // Animate modal out
+    Animated.timing(modalSlideAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setSelectedPost(null);
+      setRsvpInfo(null);
+      setUserRsvped(false);
+      setGuestListModalVisible(false);
+    });
+  };
+
+  useEffect(() => {
+    if (selectedPost) {
+      // Animate modal in
+      Animated.timing(modalSlideAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+      void fetchRsvpInfo(selectedPost.postid);
+    }
+  }, [selectedPost, fetchRsvpInfo, modalSlideAnim]);
+
   const exploreHasLoadedOnce = useRef(false);
 
   useFocusEffect(
@@ -180,8 +260,6 @@ export default function ExploreScreen() {
 
   const filteredPosts = useMemo(() => {
     const searchQuery = searchText.toLowerCase().trim();
-    const creatorQuery = creatorFilter.toLowerCase().trim();
-    const now = new Date();
 
     return posts.filter((post) => {
       const title = post.title?.toLowerCase() || '';
@@ -195,13 +273,6 @@ export default function ExploreScreen() {
         creator.includes(searchQuery) ||
         location.includes(searchQuery) ||
         description.includes(searchQuery);
-
-      const matchesCreator = !creatorQuery || creator.includes(creatorQuery);
-
-      const start = parseEventStart(post.start_time);
-      const matchesUpcoming = !upcomingOnly || (start != null && start.getTime() >= now.getTime());
-
-      const matchesImage = !hasImageOnly || !!post.image_url;
 
       // Tag filtering via post_tags junction table
       const matchesTag =
@@ -224,9 +295,6 @@ export default function ExploreScreen() {
 
       return (
         matchesSearch &&
-        matchesCreator &&
-        matchesUpcoming &&
-        matchesImage &&
         matchesTag &&
         matchesDistance
       );
@@ -234,9 +302,6 @@ export default function ExploreScreen() {
   }, [
     posts,
     searchText,
-    creatorFilter,
-    upcomingOnly,
-    hasImageOnly,
     selectedTagId,
     postTagMap,
     radiusEnabled,
@@ -267,15 +332,12 @@ export default function ExploreScreen() {
       .sort((a, b) => a - b)
       .join('-');
 
-    return `${selectedTagId}-${radiusMiles}-${radiusEnabled}-${creatorFilter}-${upcomingOnly}-${hasImageOnly}-${markerIds}`;
+    return `${selectedTagId}-${radiusMiles}-${radiusEnabled}-${markerIds}`;
   }, [
     filteredEventMarkers,
     selectedTagId,
     radiusMiles,
     radiusEnabled,
-    creatorFilter,
-    upcomingOnly,
-    hasImageOnly,
   ]);
 
   const mapRegion = useMemo(() => {
@@ -326,7 +388,7 @@ export default function ExploreScreen() {
               <Text style={styles.activeTagText}>
                 {tags.find((t) => t.tagid === selectedTagId)?.name ?? 'Tag'}
               </Text>
-              <Ionicons name="close-circle" size={16} color="#4F46E5" style={{ marginLeft: 4 }} />
+              <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
             </Pressable>
           )}
           {radiusEnabled && (
@@ -337,7 +399,7 @@ export default function ExploreScreen() {
               <Text style={styles.activeTagText}>
                 Within {radiusMiles} {radiusMiles === 1 ? 'mi' : 'mi'}
               </Text>
-              <Ionicons name="close-circle" size={16} color="#4F46E5" style={{ marginLeft: 4 }} />
+              <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
             </Pressable>
           )}
         </View>
@@ -458,52 +520,174 @@ export default function ExploreScreen() {
         <Ionicons
           name={showMap ? 'list-outline' : 'map-outline'}
           size={24}
-          color="#fff"
+          color={COLORS.textPrimary}
         />
       </Pressable>
 
       {/* Post detail modal */}
       <Modal
         visible={selectedPost !== null}
-        animationType="slide"
+        animationType="none"
         transparent
-        onRequestClose={() => setSelectedPost(null)}
+        onRequestClose={closeModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Pressable style={styles.closeButton} onPress={() => setSelectedPost(null)}>
-              <Text style={styles.closeButtonText}>✕</Text>
-            </Pressable>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={closeModal}
+        >
+          <ScrollView contentContainerStyle={styles.modalScrollContent}>
+            <Animated.View
+              style={[
+                styles.modalContent,
+                {
+                  transform: [
+                    {
+                      translateY: modalSlideAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [600, 0],
+                      }),
+                    },
+                  ],
+                  opacity: modalSlideAnim,
+                },
+              ]}
+            >
+              <Pressable
+                style={{ flex: 1 }}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <Pressable style={styles.closeButton} onPress={closeModal}>
+                  <Text style={styles.closeButtonText}>✕</Text>
+                </Pressable>
 
-            {selectedPost && (
-              <>
-                {selectedPost.image_url && (
-                  <Image source={{ uri: selectedPost.image_url }} style={styles.modalImage} />
-                )}
+              {selectedPost && (
+                <>
+                  {selectedPost.image_url && (
+                    <Image source={{ uri: selectedPost.image_url }} style={styles.modalImage} />
+                  )}
 
-                <Text style={styles.modalTitle}>{selectedPost.title}</Text>
-                <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
+                  <Text style={styles.modalTitle}>{selectedPost.title}</Text>
+                  <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
 
-                <View style={styles.divider} />
+                  <View style={styles.divider} />
 
-                <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
-                <Text style={styles.modalDetail}>
-                  🕐{' '}
-                  {selectedPost.start_time
-                    ? formatEventStartForDisplay(selectedPost.start_time)
-                    : 'No time set'}
-                </Text>
+                  <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
+                  <Text style={styles.modalDetail}>
+                    🕐{' '}
+                    {selectedPost.start_time
+                      ? formatEventStartForDisplay(selectedPost.start_time)
+                      : 'No time set'}
+                  </Text>
 
-                <View style={styles.divider} />
+                  <View style={styles.divider} />
 
-                <Text style={styles.descriptionLabel}>About this event</Text>
-                <Text style={styles.description}>
-                  {selectedPost.description || 'No description provided.'}
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
+                  {/* RSVP Section */}
+                  {currentUser && selectedPost && (
+                    <>
+                      <View style={styles.rsvpSection}>
+                        {currentUser.userid === selectedPost.userid ? (
+                          // Owner view - only show guest list button
+                          <>
+                            <Pressable
+                              style={styles.guestListButton}
+                              onPress={() => {
+                                console.log('Guest list button pressed');
+                                setGuestListModalVisible(true);
+                              }}>
+                              <Text style={styles.guestListButtonText}>
+                                👥 View Guest List
+                                {rsvpInfo && rsvpInfo.isOwner && ` (${rsvpInfo.count})`}
+                              </Text>
+                            </Pressable>
+                          </>
+                        ) : (
+                          // Non-owner view - show RSVP button and category
+                          <>
+                            <Pressable
+                              style={[styles.rsvpButton, userRsvped && styles.rsvpButtonActive]}
+                              onPress={handleToggleRsvp}
+                              disabled={rsvpLoading}>
+                              {rsvpLoading ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <Text style={styles.rsvpButtonText}>
+                                  {userRsvped ? '✓ Attending' : 'RSVP'}
+                                </Text>
+                              )}
+                            </Pressable>
+
+                            {rsvpInfo && !rsvpInfo.isOwner && (
+                              <View style={styles.rsvpInfoContainer}>
+                                <Text style={styles.rsvpCategoryText}>
+                                  👥 {formatRsvpCategory(rsvpInfo.category)}
+                                </Text>
+                              </View>
+                            )}
+                          </>
+                        )}
+                      </View>
+
+                      <View style={styles.divider} />
+                    </>
+                  )}
+
+                  <Text style={styles.descriptionLabel}>About this event</Text>
+                  <Text style={styles.description}>
+                    {selectedPost.description || 'No description provided.'}
+                  </Text>
+                </>
+              )}
+
+              {/* Guest List Overlay - shows inside event modal */}
+              {guestListModalVisible && (
+                <View style={styles.guestListOverlay}>
+                  <View style={styles.guestListModal}>
+                    <View style={styles.guestListModalHeader}>
+                      <Text style={styles.guestListModalTitle}>Guest List</Text>
+                      <Pressable
+                        onPress={() => {
+                          console.log('Close button pressed');
+                          setGuestListModalVisible(false);
+                        }}>
+                        <Text style={styles.closeButtonText}>✕</Text>
+                      </Pressable>
+                    </View>
+
+                    {rsvpInfo && rsvpInfo.isOwner ? (
+                      rsvpInfo.guests.length > 0 ? (
+                        <ScrollView style={styles.guestListScrollView}>
+                          {rsvpInfo.guests.map((guest) => (
+                            <View key={guest.rsvpid} style={styles.guestListItem}>
+                              <View style={styles.guestAvatarPlaceholder}>
+                                <Text style={styles.guestAvatarText}>
+                                  {guest.first_name?.[0]?.toUpperCase() || '?'}
+                                </Text>
+                              </View>
+                              <View style={styles.guestInfo}>
+                                <Text style={styles.guestName}>
+                                  {guest.first_name} {guest.last_name}
+                                </Text>
+                              </View>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      ) : (
+                        <View style={styles.emptyGuestList}>
+                          <Text style={styles.emptyGuestListText}>No one has RSVP'd yet</Text>
+                        </View>
+                      )
+                    ) : (
+                      <View style={styles.emptyGuestList}>
+                        <Text style={styles.emptyGuestListText}>Loading...</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+              </Pressable>
+            </Animated.View>
+          </ScrollView>
+        </Pressable>
       </Modal>
 
       {/* Filter modal */}
@@ -523,10 +707,15 @@ export default function ExploreScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.filterLabel}>Distance</Text>
+              <Text style={styles.filterLabel}>DISTANCE</Text>
               <View style={styles.switchRow}>
                 <Text style={styles.switchLabel}>Filter by distance</Text>
-                <Switch value={radiusEnabled} onValueChange={setRadiusEnabled} />
+                <Switch
+                  value={radiusEnabled}
+                  onValueChange={setRadiusEnabled}
+                  trackColor={{ false: COLORS.border, true: COLORS.primary }}
+                  thumbColor={radiusEnabled ? COLORS.yellow : COLORS.textLight}
+                />
               </View>
               {radiusEnabled && (
                 <View style={styles.sliderSection}>
@@ -543,9 +732,9 @@ export default function ExploreScreen() {
                     step={1}
                     value={radiusMiles}
                     onValueChange={setRadiusMiles}
-                    minimumTrackTintColor="#4F46E5"
-                    maximumTrackTintColor="#e5e7eb"
-                    thumbTintColor="#4F46E5"
+                    minimumTrackTintColor={COLORS.primary}
+                    maximumTrackTintColor={COLORS.border}
+                    thumbTintColor={COLORS.yellow}
                   />
                   <View style={styles.sliderLabels}>
                     <Text style={styles.sliderLabelText}>1 mi</Text>
@@ -554,26 +743,7 @@ export default function ExploreScreen() {
                 </View>
               )}
 
-              <Text style={styles.filterLabel}>Creator</Text>
-              <TextInput
-                style={styles.filterInput}
-                placeholder="Filter by creator"
-                placeholderTextColor="#8b8b8b"
-                value={creatorFilter}
-                onChangeText={setCreatorFilter}
-              />
-
-              <View style={styles.switchRow}>
-                <Text style={styles.switchLabel}>Upcoming events only</Text>
-                <Switch value={upcomingOnly} onValueChange={setUpcomingOnly} />
-              </View>
-
-              <View style={styles.switchRow}>
-                <Text style={styles.switchLabel}>Only posts with images</Text>
-                <Switch value={hasImageOnly} onValueChange={setHasImageOnly} />
-              </View>
-
-              <Text style={styles.filterLabel}>Tag</Text>
+              <Text style={styles.filterLabel}>TAGS</Text>
               <View style={styles.tagGrid}>
                 <Pressable
                   onPress={() => setSelectedTagId(null)}
@@ -622,9 +792,6 @@ export default function ExploreScreen() {
                 onPress={() => {
                   setRadiusEnabled(false);
                   setRadiusMiles(10);
-                  setCreatorFilter('');
-                  setUpcomingOnly(false);
-                  setHasImageOnly(false);
                   setSelectedTagId(null);
                 }}
               >
@@ -648,43 +815,53 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e8f3f8',
-    paddingTop: 64,
-    paddingHorizontal: 10,
+    backgroundColor: COLORS.background,
+    paddingTop: 50,
+    paddingHorizontal: 16,
     alignContent: 'center',
   },
   title: {
-    fontSize: 40,
-    fontWeight: '700',
-    margin: 8,
-    marginTop: 36,
-    marginBottom: 36,
+    fontSize: 28,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 12,
+    letterSpacing: -0.5,
+    textTransform: 'uppercase',
   },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 14,
+    paddingHorizontal: 16,
   },
   searchBar: {
     flex: 1,
     height: 48,
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
     paddingHorizontal: 16,
     fontSize: 15,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
   },
   filterButton: {
     marginLeft: 10,
     height: 48,
     width: 48,
-    borderRadius: 12,
-    backgroundColor: '#7eacc3',
+    borderRadius: 0,
+    backgroundColor: COLORS.yellow,
     justifyContent: 'center',
     alignItems: 'center',
-    // borderWidth: 1,
-    // borderColor: '#e5e7eb',
+    borderWidth: 3,
+    borderColor: COLORS.yellow,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
   },
   loaderLarge: {
     marginTop: 24,
@@ -692,62 +869,98 @@ const styles = StyleSheet.create({
   postCardsContainer: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    backgroundColor: 'transparent',
+    paddingVertical: 12,
+    paddingHorizontal: 0,
   },
   list: {
-    gap: 12,
+    gap: 32,
     paddingBottom: 100,
+    paddingTop: 12,
   },
   postCard: {
     borderWidth: 0,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 25,
-    backgroundColor: '#cce6f7',
+    borderRadius: 0,
+    padding: 0,
+    backgroundColor: COLORS.cardBackground,
+    overflow: 'hidden',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 0,
+    elevation: 8,
+    borderLeftWidth: 8,
+    borderLeftColor: COLORS.red,
   },
   cardImage: {
     width: '100%',
-    height: 160,
-    borderRadius: 8,
-    marginBottom: 10,
+    height: 200,
+    borderRadius: 0,
+    marginBottom: 0,
+    backgroundColor: COLORS.cream,
   },
   postTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    marginBottom: 10,
+    marginTop: 20,
+    marginHorizontal: 24,
+    letterSpacing: -0.8,
+    lineHeight: 28,
+    textTransform: 'uppercase',
   },
   postAuthor: {
-    fontSize: 14,
-    color: '#4b5563',
+    fontSize: 12,
+    color: COLORS.textOnDark,
+    marginBottom: 16,
+    marginHorizontal: 24,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    fontWeight: '800',
+    backgroundColor: COLORS.primary,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   postDetail: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginTop: 0,
+    marginBottom: 10,
+    marginHorizontal: 24,
+    lineHeight: 24,
+    fontWeight: '600',
   },
   emptyText: {
     marginTop: 24,
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: 15,
+    color: COLORS.textOnDark,
     textAlign: 'center',
+    fontWeight: '600',
   },
   mapSection: {
     flex: 1,
   },
   locationButton: {
-    backgroundColor: '#111827',
-    borderRadius: 10,
-    paddingVertical: 12,
+    backgroundColor: COLORS.primary,
+    borderRadius: 0,
+    paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 12,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
   },
   locationButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
+    color: COLORS.textOnDark,
+    fontSize: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   loader: {
     marginBottom: 8,
@@ -771,20 +984,22 @@ const styles = StyleSheet.create({
     bottom: 28,
     width: 58,
     height: 58,
-    borderRadius: 29,
-    backgroundColor: '#111827',
+    borderRadius: 0,
+    backgroundColor: COLORS.yellow,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
+    shadowColor: COLORS.shadow,
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
+    shadowOffset: { width: 4, height: 4 },
+    elevation: 8,
+    borderWidth: 3,
+    borderColor: COLORS.yellow,
   },
   filterModalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    padding: 24,
     width: '100%',
     maxHeight: '80%',
   },
@@ -795,40 +1010,40 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   filterTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
   },
   filterLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-    marginTop: 8,
-  },
-  filterInput: {
-    height: 48,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    fontSize: 16,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
     marginBottom: 12,
+    marginTop: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: COLORS.cardBackground,
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: COLORS.border,
   },
   switchLabel: {
     fontSize: 15,
-    color: '#374151',
+    color: COLORS.textPrimary,
     flex: 1,
     marginRight: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   filterActions: {
     flexDirection: 'row',
@@ -838,29 +1053,43 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderWidth: 3,
+    borderColor: COLORS.textSecondary,
+    borderRadius: 0,
+    paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.cardBackground,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 0,
   },
   clearButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#374151',
+    fontSize: 16,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   applyButton: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 0,
+    paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: '#111827',
+    backgroundColor: COLORS.primary,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
   },
   applyButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 16,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   modalOverlay: {
     flex: 1,
@@ -869,89 +1098,109 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
   modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
     padding: 24,
     width: '100%',
-    maxHeight: '80%',
   },
   closeButton: {
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
     marginBottom: 16,
     padding: 4,
   },
   closeButtonText: {
-    fontSize: 20,
-    color: '#6b7280',
+    fontSize: 24,
+    color: COLORS.textSecondary,
+    fontWeight: '300',
   },
   modalImage: {
     width: '100%',
-    height: 200,
-    borderRadius: 10,
+    height: 220,
+    borderRadius: 0,
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
+    color: COLORS.textPrimary,
+    marginBottom: 6,
+    letterSpacing: -0.5,
   },
   modalAuthor: {
     fontSize: 15,
-    color: '#4b5563',
+    color: COLORS.textSecondary,
     marginBottom: 12,
   },
   divider: {
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    marginVertical: 12,
+    borderTopColor: COLORS.border,
+    marginVertical: 16,
   },
   modalDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 6,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginBottom: 8,
+    lineHeight: 22,
   },
   descriptionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
   },
   description: {
-    fontSize: 14,
-    color: '#4b5563',
-    lineHeight: 22,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    lineHeight: 24,
   },
   activeTagRow: {
     flexDirection: 'row',
     marginBottom: 12,
+    paddingHorizontal: 16,
   },
   activeTagChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EEF2FF',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
+    backgroundColor: COLORS.yellow,
+    borderRadius: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 3,
+    borderColor: COLORS.yellow,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
   },
   activeTagText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#4F46E5',
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   sliderSection: {
     marginTop: 8,
-    marginBottom: 12,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: COLORS.cardBackground,
+    borderWidth: 3,
+    borderColor: COLORS.border,
   },
   sliderValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
   },
   slider: {
     width: '100%',
@@ -961,40 +1210,198 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 4,
+    marginTop: 4,
   },
   sliderLabelText: {
-    fontSize: 12,
-    color: '#6b7280',
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   sliderHint: {
     fontSize: 13,
-    color: '#b91c1c',
-    marginBottom: 8,
+    color: COLORS.red,
+    marginBottom: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   tagGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 16,
   },
   tagGridChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    borderWidth: 3,
+    borderColor: COLORS.textSecondary,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 0,
   },
   tagGridChipSelected: {
-    backgroundColor: '#4F46E5',
-    borderColor: '#4F46E5',
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+    shadowOpacity: 0.2,
   },
   tagGridChipText: {
     fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
+    color: COLORS.textPrimary,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   tagGridChipTextSelected: {
-    color: '#fff',
+    color: COLORS.textOnDark,
+  },
+  rsvpSection: {
+    marginVertical: 8,
+  },
+  rsvpButton: {
+    backgroundColor: COLORS.red,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 0,
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 6,
+    borderWidth: 3,
+    borderColor: COLORS.red,
+  },
+  rsvpButtonActive: {
+    backgroundColor: COLORS.yellow,
+    borderColor: COLORS.yellow,
+    shadowColor: COLORS.yellow,
+  },
+  rsvpButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  },
+  rsvpInfoContainer: {
+    backgroundColor: COLORS.background,
+    padding: 14,
+    borderRadius: 0,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  rsvpCategoryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.textOnDark,
+  },
+  guestListButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 0,
+    alignItems: 'center',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 6,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+  },
+  guestListButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  },
+  guestListOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  guestListModal: {
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    padding: 24,
+    width: '90%',
+    maxHeight: '70%',
+    elevation: 10,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+  },
+  guestListModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  guestListModalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
+  },
+  guestListScrollView: {
+    maxHeight: 400,
+  },
+  guestListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    backgroundColor: COLORS.background,
+    borderRadius: 0,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  guestAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  guestAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  guestInfo: {
+    flex: 1,
+  },
+  guestName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: 3,
+  },
+  emptyGuestList: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyGuestListText: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
   },
 });

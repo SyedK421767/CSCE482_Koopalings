@@ -18,33 +18,40 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].tabIconDefault,
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: '#6b8cae',
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: {
-          backgroundColor: Colors[colorScheme ?? 'light'].background,
+          backgroundColor: '#03152c',
+          height: 70,
+          paddingBottom: 10,
+          paddingTop: 10,
+        },
+        tabBarShowLabel: false,
+        tabBarIconStyle: {
+          marginTop: 0,
         },
       }}>
       <Tabs.Screen
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={36} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="location.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={36} name="safari" color={color} />,
         }}
       />
       <Tabs.Screen
         name="post"
         options={{
           title: 'Post',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="plus.circle.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={36} name="plus.circle.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -52,7 +59,7 @@ export default function TabLayout() {
         options={{
           title: 'Chat',
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="bubble.left.fill" color={color} />
+            <IconSymbol size={36} name="bubble.left.fill" color={color} />
           ),
         }}
       />
@@ -60,7 +67,7 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={36} name="person.fill" color={color} />,
         }}
       />
     </Tabs>
