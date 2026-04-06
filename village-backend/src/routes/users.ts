@@ -87,6 +87,7 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 
   try {
+    console.log('Login attempt for email:', normalizedEmail);
     const result = await pool.query(
       `
       SELECT userid, password
@@ -98,14 +99,19 @@ router.post('/login', async (req: Request, res: Response) => {
     );
 
     if (result.rows.length === 0) {
+      console.log('No user found with email:', normalizedEmail);
       return res.status(401).json({ error: 'Incorrect credentials' });
     }
 
     const user = result.rows[0];
+    console.log('User found, checking password...');
 
     if (user.password !== normalizedPassword) {
+      console.log('Password mismatch');
       return res.status(401).json({ error: 'Incorrect credentials' });
     }
+
+    console.log('Login successful for user:', user.userid);
 
     const profile = await fetchUserProfile(user.userid);
     if (!profile) {
