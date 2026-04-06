@@ -202,6 +202,12 @@ export default function ChatScreen() {
 
   const loadMessages = useCallback(
     async (conversationId: number) => {
+      // Update ref and state immediately so WebSocket messages that arrive
+      // during the fetch are not dropped by the onmessage handler.
+      selectedConversationRef.current = conversationId;
+      setSelectedConversationId(conversationId);
+      setEditingMessageId(null);
+      setDraft('');
       try {
         const res = await fetch(`${API_URL}/chat/conversations/${conversationId}/messages`);
         if (!res.ok) {
@@ -209,10 +215,18 @@ export default function ChatScreen() {
           return;
         }
         const data = (await res.json()) as ChatMessage[];
-        setMessages(data);
-        setSelectedConversationId(conversationId);
-        setEditingMessageId(null);
-        setDraft('');
+        // Merge fetched messages with any that arrived via WebSocket during the fetch.
+        setMessages((prev) => {
+          const merged = [...data];
+          for (const msg of prev) {
+            if (!merged.some((m) => m.messageid === msg.messageid)) {
+              merged.push(msg);
+            }
+          }
+          return merged.sort(
+            (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+          );
+        });
         await markConversationRead(conversationId);
         void loadConversations();
       } catch (err) {
