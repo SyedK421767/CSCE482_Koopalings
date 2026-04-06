@@ -8,6 +8,22 @@ import { HobbyPicker, type HobbyTag } from '@/components/hobby-picker';
 
 const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 
+// Color Theme - matching home and explore pages
+const COLORS = {
+  background: '#062f66',
+  cardBackground: '#FFFFFF',
+  primary: '#2743bc',
+  yellow: '#ffbd59',
+  red: '#e34348',
+  cream: '#ffd59a',
+  textPrimary: '#062f66',
+  textSecondary: '#5a6c8c',
+  textLight: '#8892a8',
+  textOnDark: '#FFFFFF',
+  border: '#E5E7EB',
+  shadow: '#000000',
+};
+
 export default function OnboardingInterestsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -121,54 +137,63 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 24,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 8,
+    fontSize: 40,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: -1,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#6b7280',
-    lineHeight: 22,
+    fontSize: 17,
+    color: COLORS.textOnDark,
+    lineHeight: 24,
+    fontWeight: '600',
   },
   pickerWrapper: {
     flex: 1,
     minHeight: 200,
   },
   footer: {
-    gap: 12,
-    marginTop: 24,
+    gap: 16,
+    marginTop: 32,
   },
   continueButton: {
-    backgroundColor: '#111827',
-    borderRadius: 14,
-    paddingVertical: 16,
+    backgroundColor: COLORS.red,
+    borderRadius: 0,
+    paddingVertical: 18,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 3,
+    borderColor: COLORS.red,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
+    elevation: 8,
   },
   continueButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
+    color: COLORS.textOnDark,
+    fontSize: 18,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   skipButton: {
     paddingVertical: 14,
     alignItems: 'center',
   },
   skipButtonText: {
-    color: '#6b7280',
+    color: COLORS.yellow,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   buttonDisabled: {
     opacity: 0.6,

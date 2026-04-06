@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -24,6 +25,22 @@ const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 const SAMPLE_IMAGE =
   'https://placehold.net/600x400.png';
+
+// Color Theme - matching home and explore pages
+const COLORS = {
+  background: '#062f66',
+  cardBackground: '#FFFFFF',
+  primary: '#2743bc',
+  yellow: '#ffbd59',
+  red: '#e34348',
+  cream: '#ffd59a',
+  textPrimary: '#062f66',
+  textSecondary: '#5a6c8c',
+  textLight: '#8892a8',
+  textOnDark: '#FFFFFF',
+  border: '#E5E7EB',
+  shadow: '#000000',
+};
 
 interface Tag {
   tagid: number;
@@ -65,17 +82,6 @@ export default function PostScreen() {
 
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
-
-  const [showAddMenu, setShowAddMenu] = useState(false);
-  const [showPoll, setShowPoll] = useState(false);
-  const [showLink, setShowLink] = useState(false);
-
-  const [linkTitle, setLinkTitle] = useState('');
-  const [linkUrl, setLinkUrl] = useState('');
-
-  const [pollQuestion, setPollQuestion] = useState('');
-  const [pollType, setPollType] = useState<PollType>('multiple-choice');
-  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -258,39 +264,6 @@ export default function PostScreen() {
     );
   };
 
-  const removeMedia = () => {
-    setImage(null);
-    setHasExtraMedia(false);
-  };
-
-  const removeLink = () => {
-    setShowLink(false);
-    setLinkTitle('');
-    setLinkUrl('');
-  };
-
-  const removePoll = () => {
-    setShowPoll(false);
-    setPollQuestion('');
-    setPollType('multiple-choice');
-    setPollOptions(['', '']);
-  };
-
-  const addPollOption = () => {
-    setPollOptions((prev) => [...prev, '']);
-  };
-
-  const updatePollOption = (index: number, value: string) => {
-    setPollOptions((prev) => prev.map((option, i) => (i === index ? value : option)));
-  };
-
-  const removePollOption = (index: number) => {
-    setPollOptions((prev) => {
-      if (prev.length <= 2) return prev;
-      return prev.filter((_, i) => i !== index);
-    });
-  };
-
   const selectedTagNames = tags
     .filter((tag) => selectedTagIds.includes(tag.tagid))
     .map((tag) => tag.name);
@@ -354,22 +327,6 @@ export default function PostScreen() {
           tagIds: selectedTagIds,
           latitude: finalLat,
           longitude: finalLng,
-          link: showLink
-            ? {
-                title: linkTitle.trim(),
-                url: linkUrl.trim(),
-              }
-            : null,
-          poll: showPoll
-            ? {
-                question: pollQuestion.trim(),
-                type: pollType,
-                options:
-                  pollType === 'short-answer'
-                    ? []
-                    : pollOptions.map((option) => option.trim()).filter(Boolean),
-              }
-            : null,
         }),
       });
 
@@ -392,14 +349,6 @@ export default function PostScreen() {
       setSelectedTagIds([]);
       setLatitude(null);
       setLongitude(null);
-      setShowPoll(false);
-      setShowLink(false);
-      setPollQuestion('');
-      setPollType('multiple-choice');
-      setPollOptions(['', '']);
-      setLinkTitle('');
-      setLinkUrl('');
-      setShowAddMenu(false);
     } catch (err) {
       console.error('Failed to create post:', err);
       Alert.alert('Error', 'Failed to create post. Please try again.');
@@ -420,7 +369,10 @@ export default function PostScreen() {
   });
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -543,7 +495,7 @@ export default function PostScreen() {
               mode="date"
               display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
               onChange={handleDateChange}
-              textColor="#111827"
+              textColor="#FFFFFF"
             />
           )}
 
@@ -553,7 +505,7 @@ export default function PostScreen() {
               mode="time"
               display={Platform.OS === 'ios' ? 'spinner' : 'clock'}
               onChange={handleTimeChange}
-              textColor="#111827"
+              textColor="#FFFFFF"
             />
           )}
 
@@ -617,547 +569,309 @@ export default function PostScreen() {
             />
           </View>
 
-          {hasExtraMedia && image && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionLabel}>Extra Media</Text>
-                <Pressable style={styles.deletePill} onPress={removeMedia}>
-                  <Text style={styles.deletePillText}>Delete</Text>
-                </Pressable>
-              </View>
-
-              <Image source={{ uri: image }} style={styles.extraMediaPreview} />
-            </View>
-          )}
-
-          {showLink && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionLabel}>Link</Text>
-                <Pressable style={styles.deletePill} onPress={removeLink}>
-                  <Text style={styles.deletePillText}>Delete</Text>
-                </Pressable>
-              </View>
-
-              <TextInput
-                value={linkTitle}
-                onChangeText={setLinkTitle}
-                placeholder="Link title (ex: Parking Form, Spotify Playlist)"
-                placeholderTextColor="#9ca3af"
-                style={styles.inputBox}
-              />
-
-              <TextInput
-                value={linkUrl}
-                onChangeText={setLinkUrl}
-                placeholder="Paste URL"
-                placeholderTextColor="#9ca3af"
-                style={styles.inputBox}
-                autoCapitalize="none"
-              />
-            </View>
-          )}
-
-          {showPoll && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionLabel}>Poll</Text>
-                <Pressable style={styles.deletePill} onPress={removePoll}>
-                  <Text style={styles.deletePillText}>Delete</Text>
-                </Pressable>
-              </View>
-
-              <TextInput
-                value={pollQuestion}
-                onChangeText={setPollQuestion}
-                placeholder="Poll question"
-                placeholderTextColor="#9ca3af"
-                style={styles.inputBox}
-              />
-
-              <Text style={styles.subLabel}>Question Type</Text>
-              <View style={styles.pollTypeRow}>
-                <Pressable
-                  style={[
-                    styles.pollTypeButton,
-                    pollType === 'multiple-choice' && styles.pollTypeButtonActive,
-                  ]}
-                  onPress={() => setPollType('multiple-choice')}
-                >
-                  <Text
-                    style={[
-                      styles.pollTypeButtonText,
-                      pollType === 'multiple-choice' && styles.pollTypeButtonTextActive,
-                    ]}
-                  >
-                    Multiple Choice
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  style={[
-                    styles.pollTypeButton,
-                    pollType === 'checkbox' && styles.pollTypeButtonActive,
-                  ]}
-                  onPress={() => setPollType('checkbox')}
-                >
-                  <Text
-                    style={[
-                      styles.pollTypeButtonText,
-                      pollType === 'checkbox' && styles.pollTypeButtonTextActive,
-                    ]}
-                  >
-                    Checkbox
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  style={[
-                    styles.pollTypeButton,
-                    pollType === 'short-answer' && styles.pollTypeButtonActive,
-                  ]}
-                  onPress={() => setPollType('short-answer')}
-                >
-                  <Text
-                    style={[
-                      styles.pollTypeButtonText,
-                      pollType === 'short-answer' && styles.pollTypeButtonTextActive,
-                    ]}
-                  >
-                    Short Answer
-                  </Text>
-                </Pressable>
-              </View>
-
-              {pollType !== 'short-answer' && (
-                <>
-                  <Text style={styles.subLabel}>Options</Text>
-
-                  {pollOptions.map((option, index) => (
-                    <View key={index} style={styles.pollOptionRow}>
-                      <TextInput
-                        value={option}
-                        onChangeText={(text) => updatePollOption(index, text)}
-                        placeholder={`Option ${index + 1}`}
-                        placeholderTextColor="#9ca3af"
-                        style={[styles.inputBox, styles.pollOptionInput]}
-                      />
-
-                      {pollOptions.length > 2 && (
-                        <Pressable
-                          style={styles.smallDeleteButton}
-                          onPress={() => removePollOption(index)}
-                        >
-                          <Text style={styles.smallDeleteButtonText}>X</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  ))}
-
-                  <Pressable style={styles.addOptionButton} onPress={addPollOption}>
-                    <Text style={styles.addOptionButtonText}>+ Add Another Option</Text>
-                  </Pressable>
-                </>
-              )}
-            </View>
-          )}
-
           <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={loading}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Post</Text>}
           </Pressable>
         </View>
       </ScrollView>
-
-      {showAddMenu && (
-        <View style={styles.fabMenu}>
-          <Pressable
-            style={styles.fabMenuItem}
-            onPress={() => {
-              handlePickImage();
-              setShowAddMenu(false);
-            }}
-          >
-            <Text style={styles.fabMenuText}>Add Media</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.fabMenuItem}
-            onPress={() => {
-              setShowPoll(true);
-              setShowAddMenu(false);
-            }}
-          >
-            <Text style={styles.fabMenuText}>Add Poll</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.fabMenuItem}
-            onPress={() => {
-              setShowLink(true);
-              setShowAddMenu(false);
-            }}
-          >
-            <Text style={styles.fabMenuText}>Add Link</Text>
-          </Pressable>
-        </View>
-      )}
-
-      <Pressable style={styles.fab} onPress={() => setShowAddMenu((prev) => !prev)}>
-        <Text style={styles.fabPlus}>{showAddMenu ? '×' : '+'}</Text>
-      </Pressable>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f3f3f3',
+    backgroundColor: COLORS.background,
   },
   container: {
     flex: 1,
-    backgroundColor: '#f3f3f3',
+    backgroundColor: COLORS.background,
   },
   content: {
-    paddingTop: 56,
-    paddingHorizontal: 22,
-    paddingBottom: 140,
+    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingBottom: 40,
   },
   pageTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 18,
+    fontSize: 28,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    marginBottom: 16,
+    marginHorizontal: 20,
+    marginTop: 8,
+    letterSpacing: -0.5,
+    textTransform: 'uppercase',
   },
   heroWrapper: {
     position: 'relative',
-    marginBottom: 16,
+    marginBottom: 20,
+    marginHorizontal: 16,
   },
   heroImage: {
     width: '100%',
-    height: 180,
-    backgroundColor: '#ddd',
+    height: 200,
+    backgroundColor: COLORS.cream,
+    borderRadius: 0,
   },
   imageEditButton: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
+    top: 12,
+    right: 12,
+    backgroundColor: COLORS.yellow,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 0,
+    borderWidth: 3,
+    borderColor: COLORS.yellow,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
   },
   imageEditButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
+    color: COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   form: {
-    gap: 14,
+    gap: 18,
+    paddingHorizontal: 16,
   },
   largeTitleInput: {
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 3,
+    borderColor: COLORS.border,
   },
   sectionLabel: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#111',
-    marginBottom: 6,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   subLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: COLORS.textSecondary,
     marginTop: 4,
     marginBottom: 4,
   },
   inputBox: {
-    backgroundColor: '#e8e8e8',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     fontSize: 15,
     color: '#111827',
+    borderWidth: 3,
+    borderColor: COLORS.border,
+    fontWeight: '700',
   },
   inputText: {
     fontSize: 15,
-    color: '#111827',
+    color: COLORS.textPrimary,
+    fontWeight: '600',
   },
   placeholderText: {
-    color: '#9ca3af',
+    color: COLORS.textLight,
   },
   tagChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
     marginTop: 10,
   },
   tagChip: {
-    backgroundColor: '#7eacc3',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 0,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
   },
   tagChipText: {
-    color: '#fff',
-    fontWeight: '600',
+    color: COLORS.textOnDark,
+    fontWeight: '800',
     fontSize: 13,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   dateTimeRow: {
     flexDirection: 'row',
-    borderRadius: 18,
+    borderRadius: 0,
     overflow: 'hidden',
   },
   dateBox: {
     flex: 1,
     borderTopRightRadius: 0,
     borderBottomRightRadius: 0,
+    borderRightWidth: 0,
   },
   timeBox: {
-    width: 110,
-    backgroundColor: '#7eacc3',
+    width: 130,
+    backgroundColor: COLORS.yellow,
     alignItems: 'center',
     justifyContent: 'center',
-    borderTopRightRadius: 18,
-    borderBottomRightRadius: 18,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    borderWidth: 3,
+    borderColor: COLORS.border,
   },
   timeBoxText: {
-    color: '#fff',
+    color: COLORS.textPrimary,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   descriptionBox: {
     minHeight: 130,
-    paddingTop: 14,
-  },
-  sectionCard: {
-    backgroundColor: '#f7f7f7',
-    borderRadius: 18,
-    padding: 14,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#e2e2e2',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  deletePill: {
-    backgroundColor: '#eadfdf',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  deletePillText: {
-    color: '#8b1e1e',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  extraMediaPreview: {
-    width: '100%',
-    height: 180,
-    borderRadius: 16,
-  },
-  pollTypeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  pollTypeButton: {
-    backgroundColor: '#ececec',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  pollTypeButtonActive: {
-    backgroundColor: '#7eacc3',
-  },
-  pollTypeButtonText: {
-    color: '#374151',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  pollTypeButtonTextActive: {
-    color: '#fff',
-  },
-  pollOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  pollOptionInput: {
-    flex: 1,
-  },
-  smallDeleteButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#eadfdf',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  smallDeleteButtonText: {
-    color: '#8b1e1e',
-    fontWeight: '700',
-  },
-  addOptionButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#7eacc3',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  addOptionButtonText: {
-    color: '#ebeef0',
-    fontWeight: '700',
-    fontSize: 14,
+    paddingTop: 16,
   },
   locationGroup: {
-    gap: 6,
+    gap: 8,
   },
   suggestionsCard: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 14,
-    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: COLORS.border,
+    borderRadius: 0,
+    backgroundColor: COLORS.cardBackground,
     overflow: 'hidden',
   },
   suggestionLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   suggestionLoadingText: {
     fontSize: 14,
-    color: '#6b7280',
+    color: COLORS.textSecondary,
+    fontWeight: '600',
   },
   suggestionRow: {
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: COLORS.border,
   },
   suggestionPrimary: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: '700',
+    color: COLORS.textPrimary,
   },
   suggestionSecondary: {
     fontSize: 13,
-    color: '#6b7280',
+    color: COLORS.textSecondary,
     marginTop: 2,
+    fontWeight: '600',
   },
   submitButton: {
-    backgroundColor: '#111827',
-    borderRadius: 16,
-    paddingVertical: 14,
+    backgroundColor: COLORS.red,
+    borderRadius: 0,
+    paddingVertical: 18,
     alignItems: 'center',
-    marginTop: 8,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  fab: {
-    position: 'absolute',
-    left: 22,
-    bottom: 22,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 12,
+    borderWidth: 3,
+    borderColor: COLORS.red,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
     elevation: 8,
   },
-  fabPlus: {
-    color: '#fff',
-    fontSize: 36,
-    fontWeight: '400',
-    lineHeight: 38,
-  },
-  fabMenu: {
-    position: 'absolute',
-    left: 22,
-    bottom: 98,
-    gap: 10,
-  },
-  fabMenuItem: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 14,
-    elevation: 5,
-  },
-  fabMenuText: {
-    color: '#111827',
-    fontSize: 15,
-    fontWeight: '600',
+  submitButtonText: {
+    color: COLORS.textOnDark,
+    fontSize: 18,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 34,
+    backgroundColor: COLORS.cardBackground,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
     maxHeight: '60%',
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 14,
+    fontSize: 24,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    marginBottom: 20,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
   },
   tagOption: {
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.border,
+    marginBottom: 8,
   },
   tagOptionSelected: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
   tagOptionText: {
     fontSize: 16,
-    color: '#111827',
+    color: COLORS.textPrimary,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   tagOptionTextSelected: {
-    fontWeight: '700',
+    color: COLORS.textOnDark,
+    fontWeight: '900',
   },
   checkMark: {
-    fontSize: 18,
-    color: '#6b8752',
-    fontWeight: '700',
+    fontSize: 20,
+    color: COLORS.yellow,
+    fontWeight: '900',
   },
   doneButton: {
-    marginTop: 14,
-    backgroundColor: '#111827',
-    borderRadius: 12,
+    marginTop: 20,
+    backgroundColor: COLORS.red,
+    borderRadius: 0,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 16,
+    borderWidth: 3,
+    borderColor: COLORS.red,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
   },
   doneButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    color: COLORS.textOnDark,
+    fontSize: 18,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
 });
