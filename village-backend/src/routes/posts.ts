@@ -14,6 +14,28 @@ router.get('/tags', async (req: Request, res: Response) => {
   }
 });
 
+// GET upcoming posts created by a specific user
+router.get('/my-events', async (req: Request, res: Response) => {
+  const { creatorid } = req.query;
+  if (!creatorid) {
+    return res.status(400).json({ error: 'creatorid is required' });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude
+       FROM posts
+       WHERE userid = $1
+         AND (start_time IS NULL OR start_time >= NOW())
+       ORDER BY start_time ASC NULLS LAST, postid ASC`,
+      [creatorid]
+    );
+    res.json(result.rows);
+  } catch (err: any) {
+    console.error('Error fetching my events:', err);
+    res.status(500).json({ error: 'Failed to fetch events', details: err.message });
+  }
+});
+
 // GET all posts (optionally filtered by user's interests)
 router.get('/', async (req: Request, res: Response) => {
   const { userid } = req.query;
@@ -105,6 +127,66 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create post' });
+  }
+});
+
+// PUT /posts/:postid - update a post
+router.put('/:postid', async (req: Request, res: Response) => {
+  const postid = parseInt(String(req.params.postid ?? ''), 10);
+  if (!Number.isInteger(postid) || postid <= 0) {
+    return res.status(400).json({ error: 'Valid post ID is required' });
+  }
+
+  const { title, description, location, start_time, image_url } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE posts
+       SET title       = COALESCE($1, title),
+           description = COALESCE($2, description),
+           location    = COALESCE($3, location),
+           address     = COALESCE($3, address),
+           start_time  = COALESCE($4::timestamptz, start_time),
+           dateandtime = COALESCE($4::timestamptz, dateandtime),
+           image_url   = COALESCE($5, image_url)
+       WHERE postid = $6
+       RETURNING postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude`,
+      [
+        title       != null ? String(title).trim()       : null,
+        description != null ? String(description).trim() : null,
+        location    != null ? String(location).trim()    : null,
+        start_time  ?? null,
+        image_url   != null ? String(image_url)          : null,
+        postid,
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    console.error('Error updating post:', err);
+    res.status(500).json({ error: 'Failed to update post', details: err.message });
+  }
+});
+
+// DELETE /posts/:postid
+router.delete('/:postid', async (req: Request, res: Response) => {
+  const postid = parseInt(String(req.params.postid ?? ''), 10);
+  if (!Number.isInteger(postid) || postid <= 0) {
+    return res.status(400).json({ error: 'Valid post ID is required' });
+  }
+  try {
+    const result = await pool.query('DELETE FROM posts WHERE postid = $1 RETURNING postid', [postid]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json({ deleted: postid });
+  } catch (err: any) {
+    console.error('Error deleting post:', err);
+    res.status(500).json({ error: 'Failed to delete post', details: err.message });
   }
 });
 

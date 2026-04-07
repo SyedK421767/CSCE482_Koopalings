@@ -1,12 +1,16 @@
-import { FlatList, Pressable, StyleSheet, Text, View, Alert } from 'react-native';
+import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { useAuth } from '@/context/auth-context';
+import { formatEventStartForDisplay } from '@/lib/event-datetime';
 
-const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
+const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
 const COLORS = {
   background: '#062f66',
@@ -14,12 +18,25 @@ const COLORS = {
   primary: '#2743bc',
   yellow: '#ffbd59',
   red: '#e34348',
+  cream: '#ffd59a',
   textPrimary: '#062f66',
   textSecondary: '#5a6c8c',
   textLight: '#8892a8',
   textOnDark: '#FFFFFF',
   border: '#E5E7EB',
   shadow: '#000000',
+  overlay: 'rgba(0,0,0,0.5)',
+};
+
+type Post = {
+  postid: number;
+  userid: number;
+  title: string;
+  displayname: string;
+  location: string;
+  start_time: string;
+  description: string;
+  image_url: string | null;
 };
 
 export default function ProfileScreen() {
@@ -31,6 +48,19 @@ export default function ProfileScreen() {
   const [pendingTagIds, setPendingTagIds] = useState<number[]>([]);
   const [currentTagIds, setCurrentTagIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [myEvents, setMyEvents] = useState<Post[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editDate, setEditDate] = useState(new Date());
+  const [editTime, setEditTime] = useState(new Date());
+  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+  const [showEditTimePicker, setShowEditTimePicker] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editImage, setEditImage] = useState<string | null>(null); // local URI of newly picked image
 
   useEffect(() => {
     const tags = currentUser?.tags ?? [];
@@ -53,15 +83,162 @@ export default function ProfileScreen() {
       }
     };
     fetchTags();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
+
+  const fetchMyEvents = useCallback(async () => {
+    if (!currentUser) return;
+    setEventsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/posts`);
+      if (!res.ok) return;
+      const data = (await res.json()) as Post[];
+      const now = new Date();
+      const mine = data.filter(
+        (p) => p.userid === currentUser.userid && p.start_time != null && new Date(p.start_time) >= now
+      );
+      setMyEvents(mine);
+    } catch (err) {
+      console.error('Failed to load my events:', err);
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [currentUser]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchMyEvents();
+    }, [fetchMyEvents])
+  );
 
   const displayName = useMemo(
     () => `${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim(),
     [currentUser]
   );
+
+  const openEditModal = (post: Post) => {
+    const dt = post.start_time ? new Date(post.start_time) : new Date();
+    setEditTitle(post.title ?? '');
+    setEditDescription(post.description ?? '');
+    setEditLocation(post.location ?? '');
+    setEditDate(dt);
+    setEditTime(dt);
+    setEditImage(null);
+    setShowEditDatePicker(false);
+    setShowEditTimePicker(false);
+    setEditingPost(post);
+  };
+
+  const pickEditImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission required', 'Permission to access photos is required.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+    });
+    if (!result.canceled) {
+      setEditImage(result.assets[0].uri);
+    }
+  };
+
+  const uploadImage = async (uri: string): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append('image', { uri, type: 'image/jpeg', name: 'upload.jpg' } as any);
+    try {
+      const res = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      return data.url ?? null;
+    } catch (err) {
+      console.error('Image upload failed:', err);
+      return null;
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editingPost) return;
+    if (!editTitle.trim() || !editLocation.trim()) {
+      Alert.alert('Missing fields', 'Title and location are required.');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      let imageUrl: string | null | undefined;
+      if (editImage) {
+        imageUrl = await uploadImage(editImage);
+        if (!imageUrl) {
+          Alert.alert('Error', 'Image upload failed. Please try again.');
+          return;
+        }
+      }
+
+      const combined = new Date(
+        editDate.getFullYear(), editDate.getMonth(), editDate.getDate(),
+        editTime.getHours(), editTime.getMinutes(), 0, 0
+      );
+      const res = await fetch(`${API_URL}/posts/${editingPost.postid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDescription.trim(),
+          location: editLocation.trim(),
+          start_time: combined.toISOString(),
+          ...(imageUrl !== undefined && { image_url: imageUrl }),
+        }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        Alert.alert('Error', payload?.error ?? 'Could not update post.');
+        return;
+      }
+      const updated = (await res.json()) as Post;
+      setMyEvents((prev) => prev.map((p) => (p.postid === updated.postid ? updated : p)));
+      setEditingPost(null);
+    } catch (err) {
+      console.error('Failed to update post:', err);
+      Alert.alert('Error', 'Could not update post.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deletePost = () => {
+    if (!editingPost) return;
+    Alert.alert(
+      'Delete Event',
+      'Are you sure you want to delete this event? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setEditSaving(true);
+            try {
+              const res = await fetch(`${API_URL}/posts/${editingPost.postid}`, { method: 'DELETE' });
+              if (!res.ok) {
+                const payload = await res.json().catch(() => null);
+                Alert.alert('Error', payload?.error ?? 'Could not delete post.');
+                return;
+              }
+              setMyEvents((prev) => prev.filter((p) => p.postid !== editingPost.postid));
+              setEditingPost(null);
+            } catch (err) {
+              console.error('Failed to delete post:', err);
+              Alert.alert('Error', 'Could not delete post.');
+            } finally {
+              setEditSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleLogout = () => {
     setCurrentUser(null);
@@ -93,6 +270,7 @@ export default function ProfileScreen() {
       setHobbies(tags.map((tag: { name: string }) => tag.name));
       setCurrentTagIds(ids);
       setPendingTagIds(ids);
+      setModalVisible(false);
     } catch (err) {
       console.error('Failed to save hobbies:', err);
       Alert.alert('Error', 'Could not update hobbies.');
@@ -115,12 +293,9 @@ export default function ProfileScreen() {
     return sortedPending.every((item, index) => item === sortedCurrent[index]);
   }, [pendingTagIds, currentTagIds]);
 
-  const handleSaveSelection = () => {
-    saveHobbies(pendingTagIds);
-  };
-
-  const handleResetSelection = () => {
+  const handleCloseModal = () => {
     setPendingTagIds(currentTagIds);
+    setModalVisible(false);
   };
 
   if (!currentUser) {
@@ -132,9 +307,8 @@ export default function ProfileScreen() {
     );
   }
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top + 20 }]}
-         >
+  const listHeader = (
+    <View style={{ paddingTop: insets.top + 20 }}>
       <View style={styles.profileBox}>
         <View style={styles.avatar}>
           <Ionicons name="person-outline" size={48} color="#fff" />
@@ -143,66 +317,284 @@ export default function ProfileScreen() {
         <Text style={styles.subtitle}>{currentUser.email}</Text>
       </View>
 
-      <View style={styles.currentHobbiesBox}>
-        <Text style={styles.sectionLabel}>Current Hobbies</Text>
-        {hobbies.length > 0 ? (
-          <FlatList
-            data={hobbies}
-            keyExtractor={(item) => item}
-            contentContainerStyle={styles.currentHobbyList}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <View style={styles.hobbyPill}>
-                <Text style={styles.hobbyText}>{item}</Text>
-              </View>
-            )}
-          />
-        ) : (
-          <Text style={styles.emptyHobbyText}>You have not saved hobbies yet.</Text>
-        )}
-      </View>
-
-      <View style={styles.hobbiesBox}>
-        <Text style={styles.sectionLabel}>Hobbies</Text>
-        <FlatList
-          data={tagOptions}
-          keyExtractor={(item) => item.tagid.toString()}
-          horizontal
-          contentContainerStyle={styles.hobbyList}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({ item }) => {
-            const selected = pendingTagIds.includes(item.tagid);
-            return (
-              <Pressable
-                style={[styles.hobbyPill, selected && styles.hobbySelected]}
-                onPress={() => handleToggleHobby(item.tagid)}
-              >
-                <Text style={[styles.hobbyText, selected && styles.hobbySelectedText]}>
-                  {item.name}
-                </Text>
-              </Pressable>
-            );
-          }}
-          ListEmptyComponent={<Text style={styles.emptyHobbyText}>Loading hobbies…</Text>}
-        />
-        <View style={styles.hobbyButtonsRow}>
-          <Pressable
-            style={[styles.saveHobbyButton, (saving || pendingMatches) && styles.disabledButton]}
-            onPress={handleSaveSelection}
-            disabled={saving || pendingMatches}
-          >
-            <Text style={styles.saveHobbyButtonText}>Save hobbies</Text>
-          </Pressable>
-          <Pressable style={styles.resetHobbyButton} onPress={handleResetSelection} disabled={saving}>
-            <Text style={styles.resetHobbyButtonText}>Reset</Text>
-          </Pressable>
+      <Pressable style={styles.hobbiesButton} onPress={() => setModalVisible(true)}>
+        <View style={styles.hobbiesButtonContent}>
+          <Text style={styles.hobbiesButtonLabel}>Hobbies</Text>
+          {hobbies.length > 0 ? (
+            <Text style={styles.hobbiesButtonCount}>{hobbies.length} selected</Text>
+          ) : (
+            <Text style={styles.hobbiesButtonEmpty}>None selected</Text>
+          )}
         </View>
-      </View>
-
-      <Pressable style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Log Out</Text>
+        <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
       </Pressable>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionLabel}>My Upcoming Events</Text>
+        {eventsLoading && <ActivityIndicator size="small" color={COLORS.yellow} />}
+      </View>
+    </View>
+  );
+
+  const listFooter = (
+    <Pressable style={styles.logoutButton} onPress={handleLogout}>
+      <Text style={styles.logoutText}>Log Out</Text>
+    </Pressable>
+  );
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={myEvents}
+        keyExtractor={(item) => item.postid.toString()}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={listHeader}
+        ListFooterComponent={listFooter}
+        ListEmptyComponent={
+          !eventsLoading ? (
+            <View style={styles.emptyEvents}>
+              <Text style={styles.emptyEventsText}>No upcoming events posted.</Text>
+            </View>
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <Pressable style={styles.eventCard} onPress={() => openEditModal(item)}>
+            {item.image_url && (
+              <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+            )}
+            <View style={styles.eventCardBody}>
+              <Text style={styles.eventTitle}>{item.title}</Text>
+              <Text style={styles.eventDetail}>📍 {item.location}</Text>
+              <Text style={styles.eventDetail}>
+                🕐 {formatEventStartForDisplay(item.start_time)}
+              </Text>
+              <View style={styles.editHint}>
+                <Ionicons name="pencil" size={12} color={COLORS.textSecondary} />
+                <Text style={styles.editHintText}>Tap to edit</Text>
+              </View>
+            </View>
+          </Pressable>
+        )}
+      />
+
+      {/* Edit Post Modal */}
+      <Modal
+        visible={editingPost !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditingPost(null)}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.editModalOverlay}>
+            <View style={[styles.editModalContainer, { paddingBottom: insets.bottom + 16 }]}>
+              <View style={styles.editModalHeader}>
+                <Text style={styles.editModalTitle}>Edit Event</Text>
+                <Pressable onPress={() => setEditingPost(null)} hitSlop={8}>
+                  <Ionicons name="close" size={24} color={COLORS.textOnDark} />
+                </Pressable>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {/* Image section */}
+                {(editImage || editingPost?.image_url) ? (
+                  <View style={styles.editImageWrapper}>
+                    <Image
+                      source={{ uri: editImage ?? editingPost!.image_url! }}
+                      style={styles.editImagePreview}
+                      resizeMode="cover"
+                    />
+                    <Pressable style={styles.editImageButton} onPress={pickEditImage}>
+                      <Ionicons name="camera" size={14} color={COLORS.textPrimary} />
+                      <Text style={styles.editImageButtonText}>Change Photo</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={styles.editImagePlaceholder} onPress={pickEditImage}>
+                    <Ionicons name="image-outline" size={28} color={COLORS.textSecondary} />
+                    <Text style={styles.editImagePlaceholderText}>Add Photo</Text>
+                  </Pressable>
+                )}
+
+                <Text style={styles.editLabel}>Title</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  placeholder="Event title"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+
+                <Text style={styles.editLabel}>Location</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editLocation}
+                  onChangeText={setEditLocation}
+                  placeholder="Location"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+
+                <Text style={styles.editLabel}>Date</Text>
+                <Pressable
+                  style={styles.editInput}
+                  onPress={() => { setShowEditDatePicker((p) => !p); setShowEditTimePicker(false); }}
+                >
+                  <Text style={styles.editInputText}>
+                    {editDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </Text>
+                </Pressable>
+                {showEditDatePicker && (
+                  <DateTimePicker
+                    value={editDate}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+                    textColor="#FFFFFF"
+                    onChange={(_e: DateTimePickerEvent, d?: Date) => {
+                      if (Platform.OS === 'android') setShowEditDatePicker(false);
+                      if (d) setEditDate(d);
+                    }}
+                  />
+                )}
+
+                <Text style={styles.editLabel}>Time</Text>
+                <Pressable
+                  style={styles.editInput}
+                  onPress={() => { setShowEditTimePicker((p) => !p); setShowEditDatePicker(false); }}
+                >
+                  <Text style={styles.editInputText}>
+                    {editTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </Pressable>
+                {showEditTimePicker && (
+                  <DateTimePicker
+                    value={editTime}
+                    mode="time"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'clock'}
+                    textColor="#FFFFFF"
+                    onChange={(_e: DateTimePickerEvent, t?: Date) => {
+                      if (Platform.OS === 'android') setShowEditTimePicker(false);
+                      if (t) setEditTime(t);
+                    }}
+                  />
+                )}
+
+                <Text style={styles.editLabel}>Description</Text>
+                <TextInput
+                  style={[styles.editInput, styles.editInputMultiline]}
+                  value={editDescription}
+                  onChangeText={setEditDescription}
+                  placeholder="Description"
+                  placeholderTextColor={COLORS.textSecondary}
+                  multiline
+                  numberOfLines={5}
+                  textAlignVertical="top"
+                />
+
+                <Pressable
+                  style={[styles.deleteButton, editSaving && styles.disabledButton]}
+                  onPress={deletePost}
+                  disabled={editSaving}
+                >
+                  <Ionicons name="trash-outline" size={16} color={COLORS.textOnDark} />
+                  <Text style={styles.deleteButtonText}>Delete Event</Text>
+                </Pressable>
+              </ScrollView>
+
+              <View style={styles.modalButtonsRow}>
+                <Pressable style={styles.editCancelButton} onPress={() => setEditingPost(null)} disabled={editSaving}>
+                  <Text style={styles.editCancelButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.saveButton, editSaving && styles.disabledButton]}
+                  onPress={saveEdit}
+                  disabled={editSaving}
+                >
+                  <Text style={styles.saveButtonText}>{editSaving ? 'Saving…' : 'Save'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Hobbies Modal */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Hobbies</Text>
+              <Pressable onPress={handleCloseModal} hitSlop={8}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {pendingTagIds.length > 0 && (
+                <View style={styles.selectedSection}>
+                  <Text style={styles.modalSectionLabel}>Selected</Text>
+                  <View style={styles.pillGrid}>
+                    {tagOptions
+                      .filter((t) => pendingTagIds.includes(t.tagid))
+                      .map((item) => (
+                        <Pressable
+                          key={item.tagid}
+                          style={styles.selectedPill}
+                          onPress={() => handleToggleHobby(item.tagid)}
+                        >
+                          <Text style={styles.selectedPillText}>{item.name}</Text>
+                          <Ionicons name="close-circle" size={14} color={COLORS.textOnDark} style={{ marginLeft: 4 }} />
+                        </Pressable>
+                      ))}
+                  </View>
+                </View>
+              )}
+
+              <Text style={styles.modalSectionLabel}>All Hobbies</Text>
+              {tagOptions.length > 0 ? (
+                <View style={styles.pillGrid}>
+                  {tagOptions.map((item) => {
+                    const selected = pendingTagIds.includes(item.tagid);
+                    return (
+                      <Pressable
+                        key={item.tagid}
+                        style={[styles.gridPill, selected && styles.gridPillSelected]}
+                        onPress={() => handleToggleHobby(item.tagid)}
+                      >
+                        <Text style={[styles.gridPillText, selected && styles.gridPillSelectedText]}>
+                          {item.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={styles.emptyHobbyText}>Loading hobbies…</Text>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalButtonsRow}>
+              <Pressable style={styles.cancelButton} onPress={handleCloseModal} disabled={saving}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.saveButton, (saving || pendingMatches) && styles.disabledButton]}
+                onPress={() => saveHobbies(pendingTagIds)}
+                disabled={saving || pendingMatches}
+              >
+                <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -211,7 +603,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  listContent: {
     paddingHorizontal: 16,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 28,
@@ -224,7 +619,7 @@ const styles = StyleSheet.create({
   },
   profileBox: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     backgroundColor: COLORS.cardBackground,
     padding: 24,
     borderWidth: 3,
@@ -260,115 +655,245 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
-  hobbiesBox: {
-    borderRadius: 0,
-    padding: 16,
+  hobbiesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: COLORS.cardBackground,
-    marginBottom: 12,
     borderWidth: 3,
     borderColor: COLORS.border,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: COLORS.shadow,
     shadowOffset: { width: 4, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 0,
     elevation: 4,
   },
-  currentHobbiesBox: {
-    borderRadius: 0,
-    padding: 16,
-    backgroundColor: COLORS.cardBackground,
-    marginBottom: 12,
-    borderWidth: 3,
-    borderColor: COLORS.border,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 0,
-    elevation: 4,
+  hobbiesButtonContent: {
+    flex: 1,
   },
-  sectionLabel: {
+  hobbiesButtonLabel: {
     fontSize: 14,
     fontWeight: '900',
     color: COLORS.textPrimary,
-    marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
-  hobbyList: {
-    flexDirection: 'row',
-    paddingBottom: 8,
-  },
-  currentHobbyList: {
-    flexDirection: 'row',
-    paddingBottom: 8,
-  },
-  hobbyPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 0,
-    borderWidth: 3,
-    borderColor: COLORS.border,
-    marginRight: 8,
-    backgroundColor: COLORS.cardBackground,
-  },
-  hobbyText: {
-    color: COLORS.textPrimary,
-    fontWeight: '700',
+  hobbiesButtonCount: {
     fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginTop: 2,
+  },
+  hobbiesButtonEmpty: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  },
+  eventCard: {
+    backgroundColor: COLORS.cardBackground,
+    borderLeftWidth: 8,
+    borderLeftColor: COLORS.red,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 0,
+    elevation: 8,
+  },
+  cardImage: {
+    width: '100%',
+    height: 160,
+    backgroundColor: COLORS.cream,
+  },
+  eventCardBody: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  eventTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+    letterSpacing: -0.5,
+    textTransform: 'uppercase',
+    lineHeight: 24,
+  },
+  eventDetail: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
+    fontWeight: '600',
+    lineHeight: 22,
+  },
+  editHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+  },
+  editHintText: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  emptyHobbyText: {
-    color: COLORS.textSecondary,
+  emptyEvents: {
+    paddingVertical: 32,
+    alignItems: 'center',
+  },
+  emptyEventsText: {
     fontSize: 14,
     fontWeight: '600',
+    color: COLORS.textLight,
   },
-  hobbySelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primary,
-  },
-  hobbySelectedText: {
-    color: COLORS.textOnDark,
-  },
-  hobbyButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-  },
-  saveHobbyButton: {
+  // Edit modal
+  editModalOverlay: {
     flex: 1,
-    backgroundColor: COLORS.red,
-    paddingVertical: 14,
-    borderRadius: 0,
+    backgroundColor: COLORS.overlay,
+    justifyContent: 'flex-end',
+  },
+  editModalContainer: {
+    backgroundColor: COLORS.background,
+    borderTopWidth: 3,
+    borderColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    maxHeight: '90%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: COLORS.red,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 0,
-    elevation: 4,
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  saveHobbyButtonText: {
-    color: COLORS.textOnDark,
+  editModalTitle: {
+    fontSize: 20,
     fontWeight: '900',
+    color: COLORS.textOnDark,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  resetHobbyButton: {
-    flex: 1,
+  editImageWrapper: {
+    position: 'relative',
+    marginBottom: 4,
+  },
+  editImagePreview: {
+    width: '100%',
+    height: 180,
+    backgroundColor: COLORS.primary,
+  },
+  editImageButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: COLORS.yellow,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+  },
+  editImageButtonText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  editImagePlaceholder: {
+    height: 100,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  editImagePlaceholderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textLight,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  editLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: COLORS.yellow,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 6,
+    marginTop: 14,
+  },
+  editInput: {
+    backgroundColor: COLORS.cardBackground,
     borderWidth: 3,
     borderColor: COLORS.border,
-    borderRadius: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
+  },
+  editInputText: {
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
+  },
+  editInputMultiline: {
+    minHeight: 110,
+    paddingTop: 12,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.red,
+    paddingVertical: 14,
+    borderWidth: 3,
+    borderColor: COLORS.red,
+    marginTop: 20,
+    marginBottom: 24,
+  },
+  deleteButtonText: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    fontSize: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  editCancelButton: {
+    flex: 1,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
     paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: COLORS.cardBackground,
+    backgroundColor: 'transparent',
   },
-  resetHobbyButtonText: {
-    color: COLORS.textPrimary,
+  editCancelButtonText: {
+    color: COLORS.textOnDark,
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 1,
@@ -394,32 +919,135 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
-  card: {
-    borderWidth: 3,
-    borderColor: COLORS.border,
-    borderRadius: 0,
-    padding: 20,
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: COLORS.overlay,
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
     backgroundColor: COLORS.cardBackground,
+    borderTopWidth: 3,
+    borderColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    maxHeight: '80%',
   },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 0,
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
-    alignSelf: 'center',
   },
-  label: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.textSecondary,
-    marginTop: 12,
-    marginBottom: 4,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  value: {
-    fontSize: 16,
+  modalSectionLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  selectedSection: {
+    marginBottom: 16,
+  },
+  pillGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  selectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    margin: 4,
+  },
+  selectedPillText: {
+    color: COLORS.textOnDark,
+    fontWeight: '700',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  gridPill: {
+    width: '30%',
+    margin: '1.65%',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    backgroundColor: COLORS.cardBackground,
+  },
+  gridPillSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  gridPillText: {
     color: COLORS.textPrimary,
+    fontWeight: '700',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  gridPillSelectedText: {
+    color: COLORS.textOnDark,
+  },
+  emptyHobbyText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    borderWidth: 3,
+    borderColor: COLORS.border,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: COLORS.cardBackground,
+  },
+  cancelButtonText: {
+    color: COLORS.textPrimary,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: COLORS.red,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.red,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 4,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  saveButtonText: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
 });
