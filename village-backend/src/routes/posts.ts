@@ -142,7 +142,7 @@ router.put('/:postid', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Valid post ID is required' });
   }
 
-  const { title, description, location, start_time, image_url } = req.body;
+  const { title, description, location, start_time, image_url, price_min, price_max } = req.body;
 
   try {
     const result = await pool.query(
@@ -153,7 +153,9 @@ router.put('/:postid', async (req: Request, res: Response) => {
            address     = COALESCE($3, address),
            start_time  = COALESCE($4::timestamptz, start_time),
            dateandtime = COALESCE($4::timestamptz, dateandtime),
-           image_url   = COALESCE($5, image_url)
+           image_url   = COALESCE($5, image_url),
+           price_min   = COALESCE($7::numeric, price_min),
+           price_max   = COALESCE($8::numeric, price_max)
        WHERE postid = $6
        RETURNING postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude, price_min, price_max`,
       [
@@ -163,6 +165,8 @@ router.put('/:postid', async (req: Request, res: Response) => {
         start_time  ?? null,
         image_url   != null ? String(image_url)          : null,
         postid,
+        price_min   != null ? Number(price_min)          : null,
+        price_max   != null ? Number(price_max)          : null,
       ]
     );
 
