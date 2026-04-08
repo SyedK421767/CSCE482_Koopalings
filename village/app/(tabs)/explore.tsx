@@ -390,7 +390,8 @@ export default function ExploreScreen() {
 
       {/* Active filter indicators */}
       {(selectedTagIds.length > 0 || radiusEnabled || priceFilterEnabled) && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 0 }} contentContainerStyle={styles.activeTagRow}>
+        <View style={{ height: 48 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeTagRow}>
           {selectedTagIds.map((id) => {
             const name = tags.find((t) => t.tagid === id)?.name ?? 'Tag';
             return (
@@ -427,6 +428,7 @@ export default function ExploreScreen() {
             </Pressable>
           )}
         </ScrollView>
+        </View>
       )}
 
       {!showMap ? (
@@ -1223,7 +1225,6 @@ const styles = StyleSheet.create({
   activeTagRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
     paddingHorizontal: 16,
     gap: 8,
   },

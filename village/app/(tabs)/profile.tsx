@@ -1,7 +1,7 @@
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
+import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -37,7 +37,105 @@ type Post = {
   start_time: string;
   description: string;
   image_url: string | null;
+  price_min: number | null;
+  price_max: number | null;
 };
+
+// ── Range Slider ─────────────────────────────────────────────────────────────
+const THUMB_SIZE = 26;
+const RANGE_MIN = 0;
+const RANGE_MAX = 200;
+const RANGE_STEP = 5;
+
+function valueToPx(val: number, trackW: number) {
+  return ((val - RANGE_MIN) / (RANGE_MAX - RANGE_MIN)) * (trackW - THUMB_SIZE);
+}
+
+function pxToValue(px: number, trackW: number) {
+  if (trackW <= THUMB_SIZE) return RANGE_MIN;
+  const raw = (px / (trackW - THUMB_SIZE)) * (RANGE_MAX - RANGE_MIN) + RANGE_MIN;
+  const clamped = Math.max(RANGE_MIN, Math.min(RANGE_MAX, raw));
+  return Math.round(clamped / RANGE_STEP) * RANGE_STEP;
+}
+
+function RangeSlider({
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+}: {
+  minValue: number;
+  maxValue: number;
+  onMinChange: (v: number) => void;
+  onMaxChange: (v: number) => void;
+}) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const trackWidthRef = useRef(0);
+  const minValueRef = useRef(minValue);
+  const maxValueRef = useRef(maxValue);
+  minValueRef.current = minValue;
+  maxValueRef.current = maxValue;
+  const onMinChangeRef = useRef(onMinChange);
+  onMinChangeRef.current = onMinChange;
+  const onMaxChangeRef = useRef(onMaxChange);
+  onMaxChangeRef.current = onMaxChange;
+  const minStartValue = useRef(minValue);
+  const maxStartValue = useRef(maxValue);
+
+  const minPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { minStartValue.current = minValueRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const tw = trackWidthRef.current;
+        let newVal = pxToValue(valueToPx(minStartValue.current, tw) + gs.dx, tw);
+        newVal = Math.min(newVal, maxValueRef.current);
+        onMinChangeRef.current(newVal);
+      },
+    })
+  ).current;
+
+  const maxPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { maxStartValue.current = maxValueRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const tw = trackWidthRef.current;
+        let newVal = pxToValue(valueToPx(maxStartValue.current, tw) + gs.dx, tw);
+        newVal = Math.max(newVal, minValueRef.current);
+        onMaxChangeRef.current(newVal);
+      },
+    })
+  ).current;
+
+  const HALF = THUMB_SIZE / 2;
+  const minPx = trackWidth > 0 ? valueToPx(minValue, trackWidth) : 0;
+  const maxPx = trackWidth > 0 ? valueToPx(maxValue, trackWidth) : 0;
+
+  return (
+    <View
+      style={{ height: THUMB_SIZE + 16, justifyContent: 'center' }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        trackWidthRef.current = w;
+        setTrackWidth(w);
+      }}
+    >
+      <View style={{ position: 'absolute', left: HALF, right: HALF, height: 4, backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 2 }} />
+      {trackWidth > 0 && (
+        <View style={{ position: 'absolute', left: minPx + HALF, width: Math.max(0, maxPx - minPx), height: 4, backgroundColor: '#fff', borderRadius: 2 }} />
+      )}
+      {trackWidth > 0 && (
+        <View {...minPan.panHandlers} style={{ position: 'absolute', left: minPx, width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: HALF, backgroundColor: '#fff' }} />
+      )}
+      {trackWidth > 0 && (
+        <View {...maxPan.panHandlers} style={{ position: 'absolute', left: maxPx, width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: HALF, backgroundColor: '#fff' }} />
+      )}
+    </View>
+  );
+}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -61,6 +159,9 @@ export default function ProfileScreen() {
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editImage, setEditImage] = useState<string | null>(null); // local URI of newly picked image
+  const [editIsFree, setEditIsFree] = useState(true);
+  const [editPriceMin, setEditPriceMin] = useState(0);
+  const [editPriceMax, setEditPriceMax] = useState(50);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [profilePicUploading, setProfilePicUploading] = useState(false);
 
@@ -176,12 +277,17 @@ export default function ProfileScreen() {
 
   const openEditModal = (post: Post) => {
     const dt = post.start_time ? new Date(post.start_time) : new Date();
+    const pMin = Number(post.price_min ?? 0);
+    const pMax = Number(post.price_max ?? 0);
     setEditTitle(post.title ?? '');
     setEditDescription(post.description ?? '');
     setEditLocation(post.location ?? '');
     setEditDate(dt);
     setEditTime(dt);
     setEditImage(null);
+    setEditIsFree(pMin === 0 && pMax === 0);
+    setEditPriceMin(pMin === 0 && pMax === 0 ? 0 : pMin);
+    setEditPriceMax(pMin === 0 && pMax === 0 ? 50 : pMax);
     setShowEditDatePicker(false);
     setShowEditTimePicker(false);
     setEditingPost(post);
@@ -246,6 +352,8 @@ export default function ProfileScreen() {
           description: editDescription.trim(),
           location: editLocation.trim(),
           start_time: combined.toISOString(),
+          price_min: editIsFree ? 0 : editPriceMin,
+          price_max: editIsFree ? 0 : editPriceMax,
           ...(imageUrl !== undefined && { image_url: imageUrl }),
         }),
       });
@@ -563,6 +671,39 @@ export default function ProfileScreen() {
                   numberOfLines={5}
                   textAlignVertical="top"
                 />
+
+                <View style={styles.editPriceSection}>
+                  <Text style={styles.editLabel}>Price</Text>
+                  <Pressable
+                    style={styles.editToggleRow}
+                    onPress={() => setEditIsFree((prev) => !prev)}
+                  >
+                    <View style={[styles.editToggleTrack, editIsFree && styles.editToggleTrackActive]}>
+                      <View style={[styles.editToggleThumb, editIsFree && styles.editToggleThumbActive]} />
+                    </View>
+                    <Text style={styles.editToggleLabel}>{editIsFree ? 'Free' : 'Not Free'}</Text>
+                  </Pressable>
+
+                  {!editIsFree && (
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={styles.editPriceDisplay}>
+                        ${editPriceMin} – ${editPriceMax}
+                      </Text>
+                      <View style={styles.editSliderRow}>
+                        <Text style={styles.editSliderEdge}>$0</Text>
+                        <View style={{ flex: 1 }}>
+                          <RangeSlider
+                            minValue={editPriceMin}
+                            maxValue={editPriceMax}
+                            onMinChange={setEditPriceMin}
+                            onMaxChange={setEditPriceMax}
+                          />
+                        </View>
+                        <Text style={styles.editSliderEdge}>$200</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
 
                 <Pressable
                   style={[styles.deleteButton, editSaving && styles.disabledButton]}
@@ -957,6 +1098,64 @@ const styles = StyleSheet.create({
   editInputMultiline: {
     minHeight: 110,
     paddingTop: 12,
+  },
+  editPriceSection: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  editToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  editToggleTrack: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  editToggleTrackActive: {
+    backgroundColor: COLORS.yellow,
+  },
+  editToggleThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+  },
+  editToggleThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  editToggleLabel: {
+    color: COLORS.textOnDark,
+    fontSize: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  editPriceDisplay: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: COLORS.yellow,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  editSliderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editSliderEdge: {
+    color: COLORS.textOnDark,
+    fontSize: 12,
+    fontWeight: '700',
+    width: 34,
+    textAlign: 'center',
   },
   deleteButton: {
     flexDirection: 'row',
