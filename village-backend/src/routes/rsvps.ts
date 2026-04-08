@@ -83,9 +83,10 @@ router.get('/post/:postid', async (req: Request, res: Response) => {
     if (isOwner) {
       // Return full guest list for owner
       const guestListResult = await pool.query(
-        `SELECT r.rsvpid, r.userid, r.created_at, u.first_name, u.last_name, u.email
+        `SELECT r.rsvpid, r.userid, r.created_at, u.first_name, u.last_name, u.email, p.profile_picture
          FROM rsvps r
          JOIN users u ON r.userid = u.userid
+         LEFT JOIN profiles p ON p.userid = u.userid
          WHERE r.postid = $1
          ORDER BY r.created_at ASC`,
         [postid]

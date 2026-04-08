@@ -392,16 +392,22 @@ export default function HomeScreen() {
                         <ScrollView style={styles.guestListScrollView}>
                           {rsvpInfo.guests.map((guest) => (
                             <View key={guest.rsvpid} style={styles.guestListItem}>
-                              <View style={styles.guestAvatarPlaceholder}>
-                                <Text style={styles.guestAvatarText}>
-                                  {guest.first_name?.[0]?.toUpperCase() || '?'}
-                                </Text>
-                              </View>
+                              {guest.profile_picture ? (
+                                <Image
+                                  source={{ uri: guest.profile_picture }}
+                                  style={styles.guestAvatarImage}
+                                />
+                              ) : (
+                                <View style={styles.guestAvatarPlaceholder}>
+                                  <Text style={styles.guestAvatarText}>
+                                    {guest.first_name?.[0]?.toUpperCase() || '?'}
+                                  </Text>
+                                </View>
+                              )}
                               <View style={styles.guestInfo}>
                                 <Text style={styles.guestName}>
                                   {guest.first_name} {guest.last_name}
                                 </Text>
-                                
                               </View>
                             </View>
                           ))}
@@ -766,7 +772,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 14,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.cardBackground,
     borderRadius: 0,
     marginBottom: 10,
     borderWidth: 1,
@@ -785,6 +791,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
+  },
+  guestAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 14,
+    backgroundColor: COLORS.primary,
   },
   guestInfo: {
     flex: 1,
