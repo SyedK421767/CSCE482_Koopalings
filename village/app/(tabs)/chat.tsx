@@ -5,6 +5,8 @@ import {
   FlatList,
   Image,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -114,6 +116,8 @@ export default function ChatScreen() {
   const [profilePics, setProfilePics] = useState<Record<number, string | null>>({});
 
   const selectedConversationRef = useRef<number | null>(null);
+  const messageListRef = useRef<FlatList<ChatMessage>>(null);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversationId;
@@ -255,14 +259,30 @@ export default function ChatScreen() {
           );
         });
         await markConversationRead(conversationId);
-        void loadConversations();
-      } catch (err) {
-        console.error('Failed to load messages:', err);
-        Alert.alert('Error', 'Could not load messages.');
-      }
-    },
-    [loadConversations, markConversationRead]
-  );
+      void loadConversations();
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+      Alert.alert('Error', 'Could not load messages.');
+    }
+  },
+  [loadConversations, markConversationRead]
+);
+
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    setIsPinnedToBottom(true);
+    const timer = setTimeout(() => {
+      messageListRef.current?.scrollToEnd({ animated: false });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    if (isPinnedToBottom) {
+      messageListRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages, selectedConversationId, isPinnedToBottom]);
 
   useEffect(() => {
     if (!userId) return;
@@ -628,15 +648,28 @@ export default function ChatScreen() {
       </View>
 
       <FlatList
-          data={messages}
-          keyExtractor={(item) => item.messageid.toString()}
-          contentContainerStyle={styles.messageList}
-          renderItem={({ item }) => {
+        ref={messageListRef}
+        data={messages}
+        keyExtractor={(item) => item.messageid.toString()}
+        contentContainerStyle={styles.messageList}
+        onContentSizeChange={() => {
+          messageListRef.current?.scrollToEnd({ animated: true });
+          setIsPinnedToBottom(true);
+        }}
+        onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+          const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
+          const distanceFromBottom =
+            contentSize.height - layoutMeasurement.height - contentOffset.y;
+          setIsPinnedToBottom(distanceFromBottom <= 20);
+        }}
+        scrollEventThrottle={100}
+        ListFooterComponent={<View style={styles.messageListFooter} />}
+        renderItem={({ item }) => {
             const isMine = item.senderid === userId;
             return (
               <View style={isMine ? styles.mineWrapper : styles.theirWrapper}>
-                <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
-                  <Text style={styles.messageBody}>{item.content}</Text>
+                  <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
+                    <Text style={[styles.messageBody, isMine && styles.mineMessageText]}>{item.content}</Text>
                   {isMine && (
                     <View style={styles.messageActions}>
                       <Pressable
@@ -1021,8 +1054,11 @@ const styles = StyleSheet.create({
   },
   messageList: {
     gap: 10,
-    paddingBottom: 10,
+    paddingBottom: 70,
     paddingTop: 8,
+  },
+  messageListFooter: {
+    height: 60,
   },
   mineWrapper: {
     alignItems: 'flex-end',
@@ -1031,30 +1067,25 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   messageBubble: {
-    borderRadius: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     maxWidth: '80%',
     minWidth: 80,
-    borderWidth: 2,
+    borderWidth: 0,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   mineBubble: {
-    backgroundColor: COLORS.cardBackground,
-    borderColor: COLORS.yellow,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 0,
-    elevation: 3,
+    backgroundColor: COLORS.yellow,
+    alignSelf: 'flex-end',
   },
   theirBubble: {
     backgroundColor: COLORS.cardBackground,
-    borderColor: COLORS.border,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 0,
-    elevation: 2,
+    borderColor: 'transparent',
   },
   messageSender: {
     fontSize: 11,
@@ -1069,6 +1100,9 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontWeight: '500',
     lineHeight: 20,
+  },
+  mineMessageText: {
+    color: COLORS.textOnDark,
   },
   readReceipt: {
     marginTop: 4,
