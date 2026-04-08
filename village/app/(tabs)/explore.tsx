@@ -52,6 +52,8 @@ type Post = {
   image_url: string | null;
   latitude: number | null;
   longitude: number | null;
+  price_min: number | null;
+  price_max: number | null;
 };
 
 type Tag = {
@@ -103,7 +105,7 @@ export default function ExploreScreen() {
   // Dynamic tags from DB
   const [tags, setTags] = useState<Tag[]>([]);
   const [postTags, setPostTags] = useState<PostTag[]>([]);
-  const [selectedTagId, setSelectedTagId] = useState<number | null>(null); // null = "All"
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]); // empty = "All"
 
   // Build a lookup: postid -> set of tagids
   const postTagMap = useMemo(() => {
@@ -276,8 +278,8 @@ export default function ExploreScreen() {
 
       // Tag filtering via post_tags junction table
       const matchesTag =
-        selectedTagId === null ||
-        (postTagMap.get(post.postid)?.has(selectedTagId) ?? false);
+        selectedTagIds.length === 0 ||
+        selectedTagIds.some((id) => postTagMap.get(post.postid)?.has(id) ?? false);
 
       // Distance filtering
       let matchesDistance = true;
@@ -302,7 +304,7 @@ export default function ExploreScreen() {
   }, [
     posts,
     searchText,
-    selectedTagId,
+    selectedTagIds,
     postTagMap,
     radiusEnabled,
     radiusMiles,
@@ -332,10 +334,10 @@ export default function ExploreScreen() {
       .sort((a, b) => a - b)
       .join('-');
 
-    return `${selectedTagId}-${radiusMiles}-${radiusEnabled}-${markerIds}`;
+    return `${selectedTagIds.join(',')}-${radiusMiles}-${radiusEnabled}-${markerIds}`;
   }, [
     filteredEventMarkers,
-    selectedTagId,
+    selectedTagIds,
     radiusMiles,
     radiusEnabled,
   ]);
@@ -378,31 +380,33 @@ export default function ExploreScreen() {
       </View>
 
       {/* Active filter indicators */}
-      {(selectedTagId !== null || radiusEnabled) && (
-        <View style={styles.activeTagRow}>
-          {selectedTagId !== null && (
-            <Pressable
-              style={styles.activeTagChip}
-              onPress={() => setSelectedTagId(null)}
-            >
-              <Text style={styles.activeTagText}>
-                {tags.find((t) => t.tagid === selectedTagId)?.name ?? 'Tag'}
-              </Text>
-              <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
-            </Pressable>
-          )}
+      {(selectedTagIds.length > 0 || radiusEnabled) && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeTagRow}>
+          {selectedTagIds.map((id) => {
+            const name = tags.find((t) => t.tagid === id)?.name ?? 'Tag';
+            return (
+              <Pressable
+                key={id}
+                style={styles.activeTagChip}
+                onPress={() => setSelectedTagIds((prev) => prev.filter((tid) => tid !== id))}
+              >
+                <Text style={styles.activeTagText}>{name}</Text>
+                <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
+              </Pressable>
+            );
+          })}
           {radiusEnabled && (
             <Pressable
-              style={[styles.activeTagChip, selectedTagId !== null && { marginLeft: 8 }]}
+              style={styles.activeTagChip}
               onPress={() => setRadiusEnabled(false)}
             >
               <Text style={styles.activeTagText}>
-                Within {radiusMiles} {radiusMiles === 1 ? 'mi' : 'mi'}
+                Within {radiusMiles} mi
               </Text>
               <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
             </Pressable>
           )}
-        </View>
+        </ScrollView>
       )}
 
       {!showMap ? (
@@ -578,6 +582,15 @@ export default function ExploreScreen() {
                       ? formatEventStartForDisplay(selectedPost.start_time)
                       : 'No time set'}
                   </Text>
+                  <Text style={styles.modalDetail}>
+                    {(() => {
+                      const min = Number(selectedPost.price_min ?? 0);
+                      const max = Number(selectedPost.price_max ?? 0);
+                      if (min === 0 && max === 0) return '💲 Free';
+                      if (min === max) return `💲 $${min}`;
+                      return `💲 $${min} – $${max}`;
+                    })()}
+                  </Text>
 
                   <View style={styles.divider} />
 
@@ -745,28 +758,16 @@ export default function ExploreScreen() {
 
               <Text style={styles.filterLabel}>TAGS</Text>
               <View style={styles.tagGrid}>
-                <Pressable
-                  onPress={() => setSelectedTagId(null)}
-                  style={[
-                    styles.tagGridChip,
-                    selectedTagId === null && styles.tagGridChipSelected,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.tagGridChipText,
-                      selectedTagId === null && styles.tagGridChipTextSelected,
-                    ]}
-                  >
-                    All
-                  </Text>
-                </Pressable>
                 {tags.map((tag) => {
-                  const isSelected = selectedTagId === tag.tagid;
+                  const isSelected = selectedTagIds.includes(tag.tagid);
                   return (
                     <Pressable
                       key={tag.tagid}
-                      onPress={() => setSelectedTagId(isSelected ? null : tag.tagid)}
+                      onPress={() =>
+                        setSelectedTagIds((prev) =>
+                          isSelected ? prev.filter((id) => id !== tag.tagid) : [...prev, tag.tagid]
+                        )
+                      }
                       style={[
                         styles.tagGridChip,
                         isSelected && styles.tagGridChipSelected,
@@ -792,7 +793,7 @@ export default function ExploreScreen() {
                 onPress={() => {
                   setRadiusEnabled(false);
                   setRadiusMiles(10);
-                  setSelectedTagId(null);
+                  setSelectedTagIds([]);
                 }}
               >
                 <Text style={styles.clearButtonText}>Clear</Text>

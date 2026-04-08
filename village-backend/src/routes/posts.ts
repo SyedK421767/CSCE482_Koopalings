@@ -22,7 +22,7 @@ router.get('/my-events', async (req: Request, res: Response) => {
   }
   try {
     const result = await pool.query(
-      `SELECT postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude
+      `SELECT postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude, price_min, price_max
        FROM posts
        WHERE userid = $1
          AND (start_time IS NULL OR start_time >= NOW())
@@ -54,7 +54,7 @@ router.get('/', async (req: Request, res: Response) => {
       if (hasUserTags) {
         // User has tags: show posts that match ANY of their tags OR posts they created
         result = await pool.query(`
-          SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
+          SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude, p.price_min, p.price_max
           FROM posts p
           WHERE (p.start_time IS NULL OR p.start_time >= NOW() - INTERVAL '24 hours')
             AND (
@@ -66,7 +66,7 @@ router.get('/', async (req: Request, res: Response) => {
                 WHERE pt.postid = p.postid AND ut.userid = $1
               )
             )
-          GROUP BY p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
+          GROUP BY p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude, p.price_min, p.price_max
           ORDER BY
             (p.start_time < NOW()) ASC,
             p.start_time ASC NULLS LAST,
@@ -75,7 +75,7 @@ router.get('/', async (req: Request, res: Response) => {
       } else {
         // User has no tags: show all posts
         result = await pool.query(`
-          SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
+          SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude, p.price_min, p.price_max
           FROM posts p
           WHERE (p.start_time IS NULL OR p.start_time >= NOW() - INTERVAL '24 hours')
           ORDER BY
@@ -87,7 +87,7 @@ router.get('/', async (req: Request, res: Response) => {
     } else {
       // Return all posts if no userid provided
       result = await pool.query(`
-        SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
+        SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude, p.price_min, p.price_max
         FROM posts p
         WHERE (p.start_time IS NULL OR p.start_time >= NOW() - INTERVAL '24 hours')
         ORDER BY
@@ -107,13 +107,13 @@ router.get('/', async (req: Request, res: Response) => {
 
 // POST a new post
 router.post('/', async (req: Request, res: Response) => {
-  const { userID, displayname, title, description, location, address, start_time, dateandtime, image_url, latitude, longitude, tagIds } = req.body;
+  const { userID, displayname, title, description, location, address, start_time, dateandtime, image_url, latitude, longitude, tagIds, price_min, price_max } = req.body;
   try {
     const result = await pool.query(
-      `INSERT INTO Posts (UserID, DisplayName, Title, Description, Location, Address, Start_Time, DateAndTime, Image_URL, Latitude, Longitude)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO Posts (UserID, DisplayName, Title, Description, Location, Address, Start_Time, DateAndTime, Image_URL, Latitude, Longitude, Price_Min, Price_Max)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *`,
-      [userID, displayname, title, description, location, address, start_time, dateandtime, image_url, latitude, longitude]
+      [userID, displayname, title, description, location, address, start_time, dateandtime, image_url, latitude, longitude, price_min ?? 0, price_max ?? 0]
     );
 
     const postId = result.rows[0].postid;
@@ -155,7 +155,7 @@ router.put('/:postid', async (req: Request, res: Response) => {
            dateandtime = COALESCE($4::timestamptz, dateandtime),
            image_url   = COALESCE($5, image_url)
        WHERE postid = $6
-       RETURNING postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude`,
+       RETURNING postid, userid, title, displayname, location, start_time, description, image_url, latitude, longitude, price_min, price_max`,
       [
         title       != null ? String(title).trim()       : null,
         description != null ? String(description).trim() : null,

@@ -33,6 +33,8 @@ type Post = {
   start_time: string;
   description: string;
   image_url: string | null;
+  price_min: number | null;
+  price_max: number | null;
 };
 
 export default function HomeScreen() {
@@ -309,6 +311,15 @@ export default function HomeScreen() {
                   <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
                   <Text style={styles.modalDetail}>
                     🕐 {formatEventStartForDisplay(selectedPost.start_time)}
+                  </Text>
+                  <Text style={styles.modalDetail}>
+                    {(() => {
+                      const min = Number(selectedPost.price_min ?? 0);
+                      const max = Number(selectedPost.price_max ?? 0);
+                      if (min === 0 && max === 0) return '💲 Free';
+                      if (min === max) return `💲 $${min}`;
+                      return `💲 $${min} – $${max}`;
+                    })()}
                   </Text>
 
                   {/* RSVP Section */}
