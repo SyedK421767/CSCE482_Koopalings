@@ -94,6 +94,8 @@ export default function ExploreScreen() {
   const [creatorFilter, setCreatorFilter] = useState('');
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [hasImageOnly, setHasImageOnly] = useState(false);
+  const [priceFilterEnabled, setPriceFilterEnabled] = useState(false);
+  const [priceFilterMax, setPriceFilterMax] = useState(200);
 
   // RSVP state
   const [rsvpInfo, setRsvpInfo] = useState<RsvpInfo | null>(null);
@@ -295,10 +297,15 @@ export default function ExploreScreen() {
         }
       }
 
+      const matchesPrice =
+        !priceFilterEnabled ||
+        Number(post.price_min ?? 0) <= priceFilterMax;
+
       return (
         matchesSearch &&
         matchesTag &&
-        matchesDistance
+        matchesDistance &&
+        matchesPrice
       );
     });
   }, [
@@ -309,6 +316,8 @@ export default function ExploreScreen() {
     radiusEnabled,
     radiusMiles,
     coords,
+    priceFilterEnabled,
+    priceFilterMax,
   ]);
 
   const eventMarkers: EventMarker[] = useMemo(() => {
@@ -380,7 +389,8 @@ export default function ExploreScreen() {
       </View>
 
       {/* Active filter indicators */}
-      {(selectedTagIds.length > 0 || radiusEnabled) && (
+      {(selectedTagIds.length > 0 || radiusEnabled || priceFilterEnabled) && (
+        <View style={{ height: 48 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeTagRow}>
           {selectedTagIds.map((id) => {
             const name = tags.find((t) => t.tagid === id)?.name ?? 'Tag';
@@ -406,7 +416,19 @@ export default function ExploreScreen() {
               <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
             </Pressable>
           )}
+          {priceFilterEnabled && (
+            <Pressable
+              style={styles.activeTagChip}
+              onPress={() => setPriceFilterEnabled(false)}
+            >
+              <Text style={styles.activeTagText}>
+                {priceFilterMax === 0 ? 'Free only' : `Up to $${priceFilterMax}`}
+              </Text>
+              <Ionicons name="close-circle" size={18} color={COLORS.textPrimary} style={{ marginLeft: 6 }} />
+            </Pressable>
+          )}
         </ScrollView>
+        </View>
       )}
 
       {!showMap ? (
@@ -792,6 +814,38 @@ export default function ExploreScreen() {
                   );
                 })}
               </View>
+              <Text style={styles.filterLabel}>PRICE</Text>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Filter by max price</Text>
+                <Switch
+                  value={priceFilterEnabled}
+                  onValueChange={setPriceFilterEnabled}
+                  trackColor={{ false: COLORS.border, true: COLORS.primary }}
+                  thumbColor={priceFilterEnabled ? COLORS.yellow : COLORS.textLight}
+                />
+              </View>
+              {priceFilterEnabled && (
+                <View style={styles.sliderSection}>
+                  <Text style={styles.sliderValue}>
+                    {priceFilterMax === 0 ? 'Free only' : `Up to $${priceFilterMax}`}
+                  </Text>
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={0}
+                    maximumValue={200}
+                    step={5}
+                    value={priceFilterMax}
+                    onValueChange={(val) => setPriceFilterMax(Math.round(val / 5) * 5)}
+                    minimumTrackTintColor={COLORS.primary}
+                    maximumTrackTintColor={COLORS.border}
+                    thumbTintColor={COLORS.yellow}
+                  />
+                  <View style={styles.sliderLabels}>
+                    <Text style={styles.sliderLabelText}>Free</Text>
+                    <Text style={styles.sliderLabelText}>$200</Text>
+                  </View>
+                </View>
+              )}
             </ScrollView>
 
             <View style={styles.filterActions}>
@@ -801,6 +855,8 @@ export default function ExploreScreen() {
                   setRadiusEnabled(false);
                   setRadiusMiles(10);
                   setSelectedTagIds([]);
+                  setPriceFilterEnabled(false);
+                  setPriceFilterMax(200);
                 }}
               >
                 <Text style={styles.clearButtonText}>Clear</Text>
@@ -1168,12 +1224,14 @@ const styles = StyleSheet.create({
   },
   activeTagRow: {
     flexDirection: 'row',
-    marginBottom: 12,
+    alignItems: 'center',
     paddingHorizontal: 16,
+    gap: 8,
   },
   activeTagChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: COLORS.yellow,
     borderRadius: 0,
     paddingHorizontal: 14,
