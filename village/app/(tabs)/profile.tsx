@@ -1,4 +1,4 @@
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
+import { ActivityIndicator, FlatList, GestureResponderEvent, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -9,6 +9,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 
 import { useAuth } from '@/context/auth-context';
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
+import { getRsvpInfo, RsvpInfoOwner } from '@/lib/rsvp-api';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
@@ -63,6 +64,10 @@ export default function ProfileScreen() {
   const [editImage, setEditImage] = useState<string | null>(null); // local URI of newly picked image
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [profilePicUploading, setProfilePicUploading] = useState(false);
+  const [guestListModalVisible, setGuestListModalVisible] = useState(false);
+  const [guestListEvent, setGuestListEvent] = useState<Post | null>(null);
+  const [guestListRsvpInfo, setGuestListRsvpInfo] = useState<RsvpInfoOwner | null>(null);
+  const [guestListLoading, setGuestListLoading] = useState(false);
 
   useEffect(() => {
     const tags = currentUser?.tags ?? [];
@@ -98,7 +103,12 @@ export default function ProfileScreen() {
       const now = new Date();
       const mine = data.filter(
         (p) => p.userid === currentUser.userid && p.start_time != null && new Date(p.start_time) >= now
-      );
+      )
+        .sort((a, b) => {
+          const aTime = new Date(a.start_time!).getTime();
+          const bTime = new Date(b.start_time!).getTime();
+          return aTime - bTime;
+        });
       setMyEvents(mine);
     } catch (err) {
       console.error('Failed to load my events:', err);
@@ -304,6 +314,38 @@ export default function ProfileScreen() {
     router.replace('/');
   };
 
+  const fetchGuestList = useCallback(async (event: Post) => {
+    if (!currentUser) return;
+    setGuestListLoading(true);
+    try {
+      const info = await getRsvpInfo(event.postid, currentUser.userid);
+      if (info.isOwner) {
+        setGuestListRsvpInfo(info);
+      } else {
+        setGuestListRsvpInfo(null);
+      }
+    } catch (err) {
+      console.error('Failed to load guest list:', err);
+      setGuestListRsvpInfo(null);
+    } finally {
+      setGuestListLoading(false);
+    }
+  }, [currentUser]);
+
+  const handleViewGuestList = useCallback((event: Post) => {
+    if (!currentUser) return;
+    setGuestListEvent(event);
+    setGuestListModalVisible(true);
+    setGuestListRsvpInfo(null);
+    void fetchGuestList(event);
+  }, [currentUser, fetchGuestList]);
+
+  const handleCloseGuestList = () => {
+    setGuestListModalVisible(false);
+    setGuestListEvent(null);
+    setGuestListRsvpInfo(null);
+  };
+
   const saveHobbies = async (tagIds: number[]) => {
     if (!currentUser) return;
     setSaving(true);
@@ -408,15 +450,24 @@ export default function ProfileScreen() {
   );
 
   const listFooter = (
-    <Pressable style={styles.logoutButton} onPress={handleLogout}>
-      <Text style={styles.logoutText}>Log Out</Text>
-    </Pressable>
+    <View style={styles.listFooter}>
+      {myEvents.length > 3 && (
+        <Pressable style={styles.viewMoreButton} onPress={() => router.push('/profile-events')}>
+          <Text style={styles.viewMoreButtonText}>View More</Text>
+        </Pressable>
+      )}
+      <Pressable style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Log Out</Text>
+      </Pressable>
+    </View>
   );
+
+  const recentEvents = myEvents.slice(0, 3);
 
   return (
     <View style={styles.container}>
       <FlatList
-        data={myEvents}
+        data={recentEvents}
         keyExtractor={(item) => item.postid.toString()}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -444,6 +495,17 @@ export default function ProfileScreen() {
                 <Ionicons name="pencil" size={12} color={COLORS.textSecondary} />
                 <Text style={styles.editHintText}>Tap to edit</Text>
               </View>
+            <View style={styles.eventCardFooter}>
+              <Pressable
+                style={styles.guestListButton}
+                onPress={(event: GestureResponderEvent) => {
+                  event.stopPropagation();
+                  handleViewGuestList(item);
+                }}
+              >
+                <Text style={styles.guestListButtonText}>View RSVP List</Text>
+              </Pressable>
+            </View>
             </View>
           </Pressable>
         )}
@@ -666,6 +728,57 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={guestListModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseGuestList}
+      >
+        <View style={styles.guestListOverlay}>
+          <View style={styles.guestListModal}>
+            <View style={styles.guestListModalHeader}>
+              <Text style={styles.guestListModalTitle}>Guest List</Text>
+              <Pressable onPress={handleCloseGuestList} hitSlop={8}>
+                <Text style={styles.guestListCloseButtonText}>✕</Text>
+              </Pressable>
+            </View>
+            {guestListEvent && (
+              <Text style={styles.guestListEventTitle}>{guestListEvent.title}</Text>
+            )}
+            {guestListLoading ? (
+              <ActivityIndicator size="large" color={COLORS.primary} />
+            ) : guestListRsvpInfo && guestListRsvpInfo.guests.length > 0 ? (
+              <ScrollView style={styles.guestListScrollView}>
+                {guestListRsvpInfo.guests.map((guest) => (
+                  <View key={guest.rsvpid} style={styles.guestListItem}>
+                    {guest.profile_picture ? (
+                      <Image
+                        source={{ uri: guest.profile_picture }}
+                        style={styles.guestAvatarImage}
+                      />
+                    ) : (
+                      <View style={styles.guestAvatarPlaceholder}>
+                        <Text style={styles.guestAvatarText}>
+                          {guest.first_name?.[0]?.toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.guestInfo}>
+                      <Text style={styles.guestName}>
+                        {guest.first_name} {guest.last_name}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyGuestList}>
+                <Text style={styles.emptyGuestListText}>No one has RSVP'd yet</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -797,6 +910,31 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
+  listFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  viewMoreButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    marginBottom: 12,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 6,
+  },
+  viewMoreButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
   eventCard: {
     backgroundColor: COLORS.cardBackground,
     borderLeftWidth: 8,
@@ -847,6 +985,26 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  eventCardFooter: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  guestListButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderRadius: 0,
+  },
+  guestListButtonText: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   emptyEvents: {
     paddingVertical: 32,
@@ -1142,5 +1300,100 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  guestListOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  guestListModal: {
+    width: '90%',
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    padding: 24,
+    maxHeight: '70%',
+    elevation: 12,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
+  },
+  guestListModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  guestListModalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
+  },
+  guestListEventTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+    marginBottom: 8,
+  },
+  guestListScrollView: {
+    maxHeight: 300,
+  },
+  guestListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  guestAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  guestAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  guestAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 14,
+    backgroundColor: COLORS.primary,
+  },
+  guestInfo: {
+    flex: 1,
+  },
+  guestName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  emptyGuestList: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  emptyGuestListText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+  },
+  guestListCloseButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 18,
+    fontWeight: '700',
   },
 });
