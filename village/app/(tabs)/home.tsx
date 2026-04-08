@@ -299,32 +299,37 @@ export default function HomeScreen() {
 
                   <View style={styles.divider} />
 
+                  <Text style={styles.descriptionLabel}>About this event</Text>
+                  <Text style={styles.description}>
+                    {selectedPost.description || 'No description provided.'}
+                  </Text>
+
+                  <View style={styles.divider} />
+
                   <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
                   <Text style={styles.modalDetail}>
                     🕐 {formatEventStartForDisplay(selectedPost.start_time)}
                   </Text>
 
-                  <View style={styles.divider} />
-
                   {/* RSVP Section */}
                   {currentUser && selectedPost && (
                     <>
+                      <View style={styles.divider} />
+
                       <View style={styles.rsvpSection}>
                         {currentUser.userid === selectedPost.userid ? (
                           // Owner view - only show guest list button
-                          <>
-                            <Pressable
-                              style={styles.guestListButton}
-                              onPress={() => {
-                                console.log('Guest list button pressed');
-                                setGuestListModalVisible(true);
-                              }}>
-                              <Text style={styles.guestListButtonText}>
-                                👥 View Guest List
-                                {rsvpInfo && rsvpInfo.isOwner && ` (${rsvpInfo.count})`}
-                              </Text>
-                            </Pressable>
-                          </>
+                          <Pressable
+                            style={styles.guestListButton}
+                            onPress={() => {
+                              console.log('Guest list button pressed');
+                              setGuestListModalVisible(true);
+                            }}>
+                            <Text style={styles.guestListButtonText}>
+                              👥 View Guest List
+                              {rsvpInfo && rsvpInfo.isOwner && ` (${rsvpInfo.count})`}
+                            </Text>
+                          </Pressable>
                         ) : (
                           // Non-owner view - show RSVP button and category
                           <>
@@ -351,15 +356,8 @@ export default function HomeScreen() {
                           </>
                         )}
                       </View>
-
-                      <View style={styles.divider} />
                     </>
                   )}
-
-                  <Text style={styles.descriptionLabel}>About this event</Text>
-                  <Text style={styles.description}>
-                    {selectedPost.description || 'No description provided.'}
-                  </Text>
                 </>
               )}
 

@@ -61,6 +61,8 @@ export default function ProfileScreen() {
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editImage, setEditImage] = useState<string | null>(null); // local URI of newly picked image
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
+  const [profilePicUploading, setProfilePicUploading] = useState(false);
 
   useEffect(() => {
     const tags = currentUser?.tags ?? [];
@@ -110,6 +112,62 @@ export default function ProfileScreen() {
       void fetchMyEvents();
     }, [fetchMyEvents])
   );
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let active = true;
+    const fetchProfilePic = async () => {
+      try {
+        const res = await fetch(`${API_URL}/profiles/${currentUser.userid}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setProfilePicUrl(data.profile_picture ?? null);
+      } catch (err) {
+        console.error('Failed to fetch profile picture:', err);
+      }
+    };
+    fetchProfilePic();
+    return () => { active = false; };
+  }, [currentUser]);
+
+  const handleChangeProfilePic = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission required', 'Permission to access photos is required.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !currentUser) return;
+
+    setProfilePicUploading(true);
+    try {
+      const uri = result.assets[0].uri;
+      const formData = new FormData();
+      formData.append('image', { uri, type: 'image/jpeg', name: 'profile.jpg' } as any);
+      const uploadRes = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+      const uploadData = await uploadRes.json();
+      const url: string = uploadData.url;
+      if (!url) throw new Error('No URL returned');
+
+      const saveRes = await fetch(`${API_URL}/profiles/${currentUser.userid}/picture`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_picture: url }),
+      });
+      if (!saveRes.ok) throw new Error('Failed to save profile picture');
+      setProfilePicUrl(url);
+    } catch (err) {
+      console.error('Profile picture update failed:', err);
+      Alert.alert('Error', 'Could not update profile picture.');
+    } finally {
+      setProfilePicUploading(false);
+    }
+  };
 
   const displayName = useMemo(
     () => `${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim(),
@@ -310,9 +368,22 @@ export default function ProfileScreen() {
   const listHeader = (
     <View style={{ paddingTop: insets.top + 20 }}>
       <View style={styles.profileBox}>
-        <View style={styles.avatar}>
-          <Ionicons name="person-outline" size={48} color="#fff" />
-        </View>
+        <Pressable style={styles.avatarWrapper} onPress={handleChangeProfilePic} disabled={profilePicUploading}>
+          {profilePicUrl ? (
+            <Image source={{ uri: profilePicUrl }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatar}>
+              <Ionicons name="person-outline" size={48} color="#fff" />
+            </View>
+          )}
+          {(!profilePicUrl || profilePicUploading) && (
+            <View style={styles.avatarOverlay}>
+              {profilePicUploading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Ionicons name="camera" size={16} color="#fff" />}
+            </View>
+          )}
+        </Pressable>
         <Text style={styles.name}>{displayName || currentUser.email}</Text>
         <Text style={styles.subtitle}>{currentUser.email}</Text>
       </View>
@@ -631,16 +702,38 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 6,
   },
+  avatarWrapper: {
+    width: 88,
+    height: 88,
+    marginBottom: 16,
+    position: 'relative',
+  },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 0,
+    width: 88,
+    height: 88,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
     borderWidth: 4,
     borderColor: COLORS.yellow,
+  },
+  avatarImage: {
+    width: 88,
+    height: 88,
+    borderWidth: 4,
+    borderColor: COLORS.yellow,
+  },
+  avatarOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   name: {
     fontSize: 22,

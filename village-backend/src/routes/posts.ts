@@ -56,13 +56,16 @@ router.get('/', async (req: Request, res: Response) => {
         result = await pool.query(`
           SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
           FROM posts p
-          WHERE p.userid = $1
-             OR EXISTS (
-               SELECT 1
-               FROM post_tags pt
-               INNER JOIN user_tags ut ON pt.tagid = ut.tagid
-               WHERE pt.postid = p.postid AND ut.userid = $1
-             )
+          WHERE (p.start_time IS NULL OR p.start_time >= NOW() - INTERVAL '24 hours')
+            AND (
+              p.userid = $1
+              OR EXISTS (
+                SELECT 1
+                FROM post_tags pt
+                INNER JOIN user_tags ut ON pt.tagid = ut.tagid
+                WHERE pt.postid = p.postid AND ut.userid = $1
+              )
+            )
           GROUP BY p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
           ORDER BY
             (p.start_time < NOW()) ASC,
@@ -74,6 +77,7 @@ router.get('/', async (req: Request, res: Response) => {
         result = await pool.query(`
           SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
           FROM posts p
+          WHERE (p.start_time IS NULL OR p.start_time >= NOW() - INTERVAL '24 hours')
           ORDER BY
             (p.start_time < NOW()) ASC,
             p.start_time ASC NULLS LAST,
@@ -85,6 +89,7 @@ router.get('/', async (req: Request, res: Response) => {
       result = await pool.query(`
         SELECT p.postid, p.userid, p.title, p.displayname, p.location, p.start_time, p.description, p.image_url, p.latitude, p.longitude
         FROM posts p
+        WHERE (p.start_time IS NULL OR p.start_time >= NOW() - INTERVAL '24 hours')
         ORDER BY
           (p.start_time < NOW()) ASC,
           p.start_time ASC NULLS LAST,

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   Pressable,
   StyleSheet,
@@ -11,10 +12,12 @@ import {
   View,
 } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/auth-context';
 
 const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
 const WS_URL = `${API_URL.replace(/^http/, 'ws')}/ws`;
+const PROFILES_API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
 const COLORS = {
   background: '#062f66',
@@ -108,12 +111,35 @@ export default function ChatScreen() {
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [sending, setSending] = useState(false);
   const [showUsersModal, setShowUsersModal] = useState(false);
+  const [profilePics, setProfilePics] = useState<Record<number, string | null>>({});
 
   const selectedConversationRef = useRef<number | null>(null);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversationId;
   }, [selectedConversationId]);
+
+  const fetchProfilePics = useCallback(async (userIds: number[]) => {
+    const missing = userIds.filter((id) => !(id in profilePics));
+    if (missing.length === 0) return;
+    const results = await Promise.all(
+      missing.map(async (id) => {
+        try {
+          const res = await fetch(`${PROFILES_API_URL}/profiles/${id}`);
+          if (!res.ok) return [id, null] as const;
+          const data = await res.json();
+          return [id, data.profile_picture ?? null] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      })
+    );
+    setProfilePics((prev) => {
+      const next = { ...prev };
+      for (const [id, url] of results) next[id] = url;
+      return next;
+    });
+  }, [profilePics]);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationid === selectedConversationId) ?? null,
@@ -171,6 +197,7 @@ export default function ChatScreen() {
       }
       const data = (await res.json()) as Conversation[];
       setConversations(data);
+      void fetchProfilePics(data.map((c) => c.other_userid));
 
       if (data.length === 0 && !selectedConversationRef.current) {
         setSelectedConversationId(null);
@@ -182,7 +209,7 @@ export default function ChatScreen() {
     } finally {
       setLoadingConversations(false);
     }
-  }, [userId]);
+  }, [userId, fetchProfilePics]);
 
   const markConversationRead = useCallback(
     async (conversationId: number) => {
@@ -533,6 +560,15 @@ export default function ChatScreen() {
                   }
                 }}
               >
+                {profilePics[item.other_userid] ? (
+                  <Image source={{ uri: profilePics[item.other_userid]! }} style={styles.listAvatar} />
+                ) : (
+                  <View style={styles.listAvatarPlaceholder}>
+                    <Text style={styles.listAvatarInitial}>
+                      {(item.first_name?.[0] ?? item.email?.[0] ?? '?').toUpperCase()}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.chatTextWrap}>
                   <Text style={styles.chatName}>
                     {formatName(item.first_name, item.last_name) || item.email}
@@ -559,6 +595,7 @@ export default function ChatScreen() {
     <View style={styles.threadContainer}>
       <View style={styles.threadHeader}>
         <Pressable
+          style={styles.backButton}
           onPress={() => {
             setSelectedConversationId(null);
             setMessages([]);
@@ -566,14 +603,28 @@ export default function ChatScreen() {
             setDraft('');
           }}
         >
-          <Text style={styles.backText}>Back</Text>
+          <Ionicons name="arrow-back" size={26} color={COLORS.yellow} />
         </Pressable>
-        <Text style={styles.threadTitle}>
-          {selectedConversation
-            ? formatName(selectedConversation.first_name, selectedConversation.last_name) ||
-              selectedConversation.email
-            : 'Chat'}
-        </Text>
+        {selectedConversation && (
+          <View style={styles.threadHeaderCenter}>
+            {profilePics[selectedConversation.other_userid] ? (
+              <Image
+                source={{ uri: profilePics[selectedConversation.other_userid]! }}
+                style={styles.threadAvatar}
+              />
+            ) : (
+              <View style={styles.threadAvatarPlaceholder}>
+                <Text style={styles.threadAvatarInitial}>
+                  {(selectedConversation.first_name?.[0] ?? selectedConversation.email?.[0] ?? '?').toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.threadTitle}>
+              {formatName(selectedConversation.first_name, selectedConversation.last_name) ||
+                selectedConversation.email}
+            </Text>
+          </View>
+        )}
       </View>
 
       <FlatList
@@ -663,7 +714,7 @@ export default function ChatScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Chat</Text>
+        {!selectedConversationId && <Text style={styles.title}>Chat</Text>}
         {!selectedConversationId && (
           <View style={styles.headerActions}>
             {isSelectingChats ? (
@@ -942,32 +993,28 @@ const styles = StyleSheet.create({
   threadHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     marginBottom: 12,
-    backgroundColor: COLORS.cardBackground,
-    padding: 16,
-    borderWidth: 3,
-    borderColor: COLORS.border,
-    borderRadius: 0,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 0,
-    elevation: 3,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  backText: {
-    color: COLORS.yellow,
-    fontWeight: '900',
-    fontSize: 14,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  backButton: {
+    zIndex: 1,
+    padding: 4,
+  },
+  threadHeaderCenter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    gap: 6,
   },
   threadTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
-    color: COLORS.textPrimary,
+    color: COLORS.textOnDark,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   loadingMessages: {
     marginTop: 20,
@@ -985,11 +1032,11 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     borderRadius: 0,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    maxWidth: '92%',
-    minWidth: 120,
-    borderWidth: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    maxWidth: '80%',
+    minWidth: 80,
+    borderWidth: 2,
   },
   mineBubble: {
     backgroundColor: COLORS.cardBackground,
@@ -1018,10 +1065,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   messageBody: {
-    fontSize: 17,
+    fontSize: 14,
     color: COLORS.textPrimary,
     fontWeight: '500',
-    lineHeight: 24,
+    lineHeight: 20,
   },
   readReceipt: {
     marginTop: 4,
@@ -1220,5 +1267,53 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+  },
+  // Avatars in conversation list
+  listAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+  },
+  listAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+    backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listAvatarInitial: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  // Avatar in thread header
+  threadAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+  },
+  threadAvatarPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: COLORS.yellow,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  threadAvatarInitial: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    fontSize: 18,
   },
 });
