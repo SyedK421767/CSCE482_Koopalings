@@ -1,7 +1,7 @@
 import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -9,6 +9,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 
 import { useAuth } from '@/context/auth-context';
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
+import { getRsvpInfo, RsvpInfoOwner } from '@/lib/rsvp-api';
 
 const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
@@ -37,7 +38,105 @@ type Post = {
   start_time: string;
   description: string;
   image_url: string | null;
+  price_min: number | null;
+  price_max: number | null;
 };
+
+// ── Range Slider ─────────────────────────────────────────────────────────────
+const THUMB_SIZE = 26;
+const RANGE_MIN = 0;
+const RANGE_MAX = 200;
+const RANGE_STEP = 5;
+
+function valueToPx(val: number, trackW: number) {
+  return ((val - RANGE_MIN) / (RANGE_MAX - RANGE_MIN)) * (trackW - THUMB_SIZE);
+}
+
+function pxToValue(px: number, trackW: number) {
+  if (trackW <= THUMB_SIZE) return RANGE_MIN;
+  const raw = (px / (trackW - THUMB_SIZE)) * (RANGE_MAX - RANGE_MIN) + RANGE_MIN;
+  const clamped = Math.max(RANGE_MIN, Math.min(RANGE_MAX, raw));
+  return Math.round(clamped / RANGE_STEP) * RANGE_STEP;
+}
+
+function RangeSlider({
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+}: {
+  minValue: number;
+  maxValue: number;
+  onMinChange: (v: number) => void;
+  onMaxChange: (v: number) => void;
+}) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const trackWidthRef = useRef(0);
+  const minValueRef = useRef(minValue);
+  const maxValueRef = useRef(maxValue);
+  minValueRef.current = minValue;
+  maxValueRef.current = maxValue;
+  const onMinChangeRef = useRef(onMinChange);
+  onMinChangeRef.current = onMinChange;
+  const onMaxChangeRef = useRef(onMaxChange);
+  onMaxChangeRef.current = onMaxChange;
+  const minStartValue = useRef(minValue);
+  const maxStartValue = useRef(maxValue);
+
+  const minPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { minStartValue.current = minValueRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const tw = trackWidthRef.current;
+        let newVal = pxToValue(valueToPx(minStartValue.current, tw) + gs.dx, tw);
+        newVal = Math.min(newVal, maxValueRef.current);
+        onMinChangeRef.current(newVal);
+      },
+    })
+  ).current;
+
+  const maxPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { maxStartValue.current = maxValueRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const tw = trackWidthRef.current;
+        let newVal = pxToValue(valueToPx(maxStartValue.current, tw) + gs.dx, tw);
+        newVal = Math.max(newVal, minValueRef.current);
+        onMaxChangeRef.current(newVal);
+      },
+    })
+  ).current;
+
+  const HALF = THUMB_SIZE / 2;
+  const minPx = trackWidth > 0 ? valueToPx(minValue, trackWidth) : 0;
+  const maxPx = trackWidth > 0 ? valueToPx(maxValue, trackWidth) : 0;
+
+  return (
+    <View
+      style={{ height: THUMB_SIZE + 16, justifyContent: 'center' }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        trackWidthRef.current = w;
+        setTrackWidth(w);
+      }}
+    >
+      <View style={{ position: 'absolute', left: HALF, right: HALF, height: 4, backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 2 }} />
+      {trackWidth > 0 && (
+        <View style={{ position: 'absolute', left: minPx + HALF, width: Math.max(0, maxPx - minPx), height: 4, backgroundColor: '#fff', borderRadius: 2 }} />
+      )}
+      {trackWidth > 0 && (
+        <View {...minPan.panHandlers} style={{ position: 'absolute', left: minPx, width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: HALF, backgroundColor: '#fff' }} />
+      )}
+      {trackWidth > 0 && (
+        <View {...maxPan.panHandlers} style={{ position: 'absolute', left: maxPx, width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: HALF, backgroundColor: '#fff' }} />
+      )}
+    </View>
+  );
+}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -61,8 +160,15 @@ export default function ProfileScreen() {
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editImage, setEditImage] = useState<string | null>(null); // local URI of newly picked image
+  const [editIsFree, setEditIsFree] = useState(true);
+  const [editPriceMin, setEditPriceMin] = useState(0);
+  const [editPriceMax, setEditPriceMax] = useState(50);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [profilePicUploading, setProfilePicUploading] = useState(false);
+  const [guestListModalVisible, setGuestListModalVisible] = useState(false);
+  const [guestListEvent, setGuestListEvent] = useState<Post | null>(null);
+  const [guestListRsvpInfo, setGuestListRsvpInfo] = useState<RsvpInfoOwner | null>(null);
+  const [guestListLoading, setGuestListLoading] = useState(false);
 
   useEffect(() => {
     const tags = currentUser?.tags ?? [];
@@ -98,7 +204,12 @@ export default function ProfileScreen() {
       const now = new Date();
       const mine = data.filter(
         (p) => p.userid === currentUser.userid && p.start_time != null && new Date(p.start_time) >= now
-      );
+      )
+        .sort((a, b) => {
+          const aTime = new Date(a.start_time!).getTime();
+          const bTime = new Date(b.start_time!).getTime();
+          return aTime - bTime;
+        });
       setMyEvents(mine);
     } catch (err) {
       console.error('Failed to load my events:', err);
@@ -176,12 +287,17 @@ export default function ProfileScreen() {
 
   const openEditModal = (post: Post) => {
     const dt = post.start_time ? new Date(post.start_time) : new Date();
+    const pMin = Number(post.price_min ?? 0);
+    const pMax = Number(post.price_max ?? 0);
     setEditTitle(post.title ?? '');
     setEditDescription(post.description ?? '');
     setEditLocation(post.location ?? '');
     setEditDate(dt);
     setEditTime(dt);
     setEditImage(null);
+    setEditIsFree(pMin === 0 && pMax === 0);
+    setEditPriceMin(pMin === 0 && pMax === 0 ? 0 : pMin);
+    setEditPriceMax(pMin === 0 && pMax === 0 ? 50 : pMax);
     setShowEditDatePicker(false);
     setShowEditTimePicker(false);
     setEditingPost(post);
@@ -246,6 +362,8 @@ export default function ProfileScreen() {
           description: editDescription.trim(),
           location: editLocation.trim(),
           start_time: combined.toISOString(),
+          price_min: editIsFree ? 0 : editPriceMin,
+          price_max: editIsFree ? 0 : editPriceMax,
           ...(imageUrl !== undefined && { image_url: imageUrl }),
         }),
       });
@@ -302,6 +420,38 @@ export default function ProfileScreen() {
     setCurrentUser(null);
     setIsSignedIn(false);
     router.replace('/');
+  };
+
+  const fetchGuestList = useCallback(async (event: Post) => {
+    if (!currentUser) return;
+    setGuestListLoading(true);
+    try {
+      const info = await getRsvpInfo(event.postid, currentUser.userid);
+      if (info.isOwner) {
+        setGuestListRsvpInfo(info);
+      } else {
+        setGuestListRsvpInfo(null);
+      }
+    } catch (err) {
+      console.error('Failed to load guest list:', err);
+      setGuestListRsvpInfo(null);
+    } finally {
+      setGuestListLoading(false);
+    }
+  }, [currentUser]);
+
+  const handleViewGuestList = useCallback((event: Post) => {
+    if (!currentUser) return;
+    setGuestListEvent(event);
+    setGuestListModalVisible(true);
+    setGuestListRsvpInfo(null);
+    void fetchGuestList(event);
+  }, [currentUser, fetchGuestList]);
+
+  const handleCloseGuestList = () => {
+    setGuestListModalVisible(false);
+    setGuestListEvent(null);
+    setGuestListRsvpInfo(null);
   };
 
   const saveHobbies = async (tagIds: number[]) => {
@@ -408,15 +558,24 @@ export default function ProfileScreen() {
   );
 
   const listFooter = (
-    <Pressable style={styles.logoutButton} onPress={handleLogout}>
-      <Text style={styles.logoutText}>Log Out</Text>
-    </Pressable>
+    <View style={styles.listFooter}>
+      {myEvents.length > 3 && (
+        <Pressable style={styles.viewMoreButton} onPress={() => router.push('/profile-events')}>
+          <Text style={styles.viewMoreButtonText}>View More</Text>
+        </Pressable>
+      )}
+      <Pressable style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Log Out</Text>
+      </Pressable>
+    </View>
   );
+
+  const recentEvents = myEvents.slice(0, 3);
 
   return (
     <View style={styles.container}>
       <FlatList
-        data={myEvents}
+        data={recentEvents}
         keyExtractor={(item) => item.postid.toString()}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -444,6 +603,17 @@ export default function ProfileScreen() {
                 <Ionicons name="pencil" size={12} color={COLORS.textSecondary} />
                 <Text style={styles.editHintText}>Tap to edit</Text>
               </View>
+            <View style={styles.eventCardFooter}>
+              <Pressable
+                style={styles.guestListButton}
+                onPress={(event: GestureResponderEvent) => {
+                  event.stopPropagation();
+                  handleViewGuestList(item);
+                }}
+              >
+                <Text style={styles.guestListButtonText}>View RSVP List</Text>
+              </Pressable>
+            </View>
             </View>
           </Pressable>
         )}
@@ -564,6 +734,39 @@ export default function ProfileScreen() {
                   textAlignVertical="top"
                 />
 
+                <View style={styles.editPriceSection}>
+                  <Text style={styles.editLabel}>Price</Text>
+                  <Pressable
+                    style={styles.editToggleRow}
+                    onPress={() => setEditIsFree((prev) => !prev)}
+                  >
+                    <View style={[styles.editToggleTrack, editIsFree && styles.editToggleTrackActive]}>
+                      <View style={[styles.editToggleThumb, editIsFree && styles.editToggleThumbActive]} />
+                    </View>
+                    <Text style={styles.editToggleLabel}>{editIsFree ? 'Free' : 'Not Free'}</Text>
+                  </Pressable>
+
+                  {!editIsFree && (
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={styles.editPriceDisplay}>
+                        ${editPriceMin} – ${editPriceMax}
+                      </Text>
+                      <View style={styles.editSliderRow}>
+                        <Text style={styles.editSliderEdge}>$0</Text>
+                        <View style={{ flex: 1 }}>
+                          <RangeSlider
+                            minValue={editPriceMin}
+                            maxValue={editPriceMax}
+                            onMinChange={setEditPriceMin}
+                            onMaxChange={setEditPriceMax}
+                          />
+                        </View>
+                        <Text style={styles.editSliderEdge}>$200</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
                 <Pressable
                   style={[styles.deleteButton, editSaving && styles.disabledButton]}
                   onPress={deletePost}
@@ -663,6 +866,57 @@ export default function ProfileScreen() {
                 <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={guestListModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseGuestList}
+      >
+        <View style={styles.guestListOverlay}>
+          <View style={styles.guestListModal}>
+            <View style={styles.guestListModalHeader}>
+              <Text style={styles.guestListModalTitle}>Guest List</Text>
+              <Pressable onPress={handleCloseGuestList} hitSlop={8}>
+                <Text style={styles.guestListCloseButtonText}>✕</Text>
+              </Pressable>
+            </View>
+            {guestListEvent && (
+              <Text style={styles.guestListEventTitle}>{guestListEvent.title}</Text>
+            )}
+            {guestListLoading ? (
+              <ActivityIndicator size="large" color={COLORS.primary} />
+            ) : guestListRsvpInfo && guestListRsvpInfo.guests.length > 0 ? (
+              <ScrollView style={styles.guestListScrollView}>
+                {guestListRsvpInfo.guests.map((guest) => (
+                  <View key={guest.rsvpid} style={styles.guestListItem}>
+                    {guest.profile_picture ? (
+                      <Image
+                        source={{ uri: guest.profile_picture }}
+                        style={styles.guestAvatarImage}
+                      />
+                    ) : (
+                      <View style={styles.guestAvatarPlaceholder}>
+                        <Text style={styles.guestAvatarText}>
+                          {guest.first_name?.[0]?.toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.guestInfo}>
+                      <Text style={styles.guestName}>
+                        {guest.first_name} {guest.last_name}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyGuestList}>
+                <Text style={styles.emptyGuestListText}>No one has RSVP'd yet</Text>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -797,6 +1051,31 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
+  listFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  viewMoreButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    marginBottom: 12,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 0,
+    elevation: 6,
+  },
+  viewMoreButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
   eventCard: {
     backgroundColor: COLORS.cardBackground,
     borderLeftWidth: 8,
@@ -847,6 +1126,26 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  eventCardFooter: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  guestListButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderRadius: 0,
+  },
+  guestListButtonText: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   emptyEvents: {
     paddingVertical: 32,
@@ -957,6 +1256,64 @@ const styles = StyleSheet.create({
   editInputMultiline: {
     minHeight: 110,
     paddingTop: 12,
+  },
+  editPriceSection: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  editToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  editToggleTrack: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  editToggleTrackActive: {
+    backgroundColor: COLORS.yellow,
+  },
+  editToggleThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+  },
+  editToggleThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  editToggleLabel: {
+    color: COLORS.textOnDark,
+    fontSize: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  editPriceDisplay: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: COLORS.yellow,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  editSliderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editSliderEdge: {
+    color: COLORS.textOnDark,
+    fontSize: 12,
+    fontWeight: '700',
+    width: 34,
+    textAlign: 'center',
   },
   deleteButton: {
     flexDirection: 'row',
@@ -1142,5 +1499,100 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  guestListOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  guestListModal: {
+    width: '90%',
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 0,
+    padding: 24,
+    maxHeight: '70%',
+    elevation: 12,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
+  },
+  guestListModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  guestListModalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
+  },
+  guestListEventTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+    marginBottom: 8,
+  },
+  guestListScrollView: {
+    maxHeight: 300,
+  },
+  guestListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  guestAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  guestAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  guestAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 14,
+    backgroundColor: COLORS.primary,
+  },
+  guestInfo: {
+    flex: 1,
+  },
+  guestName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  emptyGuestList: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  emptyGuestListText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+  },
+  guestListCloseButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 18,
+    fontWeight: '700',
   },
 });
