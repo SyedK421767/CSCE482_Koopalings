@@ -33,6 +33,8 @@ type Post = {
   start_time: string;
   description: string;
   image_url: string | null;
+  price_min: number | null;
+  price_max: number | null;
 };
 
 export default function HomeScreen() {
@@ -299,32 +301,46 @@ export default function HomeScreen() {
 
                   <View style={styles.divider} />
 
-                  <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
-                  <Text style={styles.modalDetail}>
-                    🕐 {formatEventStartForDisplay(selectedPost.start_time)}
+                  <Text style={styles.descriptionLabel}>About this event</Text>
+                  <Text style={styles.description}>
+                    {selectedPost.description || 'No description provided.'}
                   </Text>
 
                   <View style={styles.divider} />
 
+                  <Text style={styles.modalDetail}>📍 {selectedPost.location}</Text>
+                  <Text style={styles.modalDetail}>
+                    🕐 {formatEventStartForDisplay(selectedPost.start_time)}
+                  </Text>
+                  <Text style={styles.modalDetail}>
+                    {(() => {
+                      const min = Number(selectedPost.price_min ?? 0);
+                      const max = Number(selectedPost.price_max ?? 0);
+                      if (min === 0 && max === 0) return '💲 Free';
+                      if (min === max) return `💲 $${min}`;
+                      return `💲 $${min} – $${max}`;
+                    })()}
+                  </Text>
+
                   {/* RSVP Section */}
                   {currentUser && selectedPost && (
                     <>
+                      <View style={styles.divider} />
+
                       <View style={styles.rsvpSection}>
                         {currentUser.userid === selectedPost.userid ? (
                           // Owner view - only show guest list button
-                          <>
-                            <Pressable
-                              style={styles.guestListButton}
-                              onPress={() => {
-                                console.log('Guest list button pressed');
-                                setGuestListModalVisible(true);
-                              }}>
-                              <Text style={styles.guestListButtonText}>
-                                👥 View Guest List
-                                {rsvpInfo && rsvpInfo.isOwner && ` (${rsvpInfo.count})`}
-                              </Text>
-                            </Pressable>
-                          </>
+                          <Pressable
+                            style={styles.guestListButton}
+                            onPress={() => {
+                              console.log('Guest list button pressed');
+                              setGuestListModalVisible(true);
+                            }}>
+                            <Text style={styles.guestListButtonText}>
+                              👥 View Guest List
+                              {rsvpInfo && rsvpInfo.isOwner && ` (${rsvpInfo.count})`}
+                            </Text>
+                          </Pressable>
                         ) : (
                           // Non-owner view - show RSVP button and category
                           <>
@@ -351,15 +367,8 @@ export default function HomeScreen() {
                           </>
                         )}
                       </View>
-
-                      <View style={styles.divider} />
                     </>
                   )}
-
-                  <Text style={styles.descriptionLabel}>About this event</Text>
-                  <Text style={styles.description}>
-                    {selectedPost.description || 'No description provided.'}
-                  </Text>
                 </>
               )}
 
@@ -383,16 +392,22 @@ export default function HomeScreen() {
                         <ScrollView style={styles.guestListScrollView}>
                           {rsvpInfo.guests.map((guest) => (
                             <View key={guest.rsvpid} style={styles.guestListItem}>
-                              <View style={styles.guestAvatarPlaceholder}>
-                                <Text style={styles.guestAvatarText}>
-                                  {guest.first_name?.[0]?.toUpperCase() || '?'}
-                                </Text>
-                              </View>
+                              {guest.profile_picture ? (
+                                <Image
+                                  source={{ uri: guest.profile_picture }}
+                                  style={styles.guestAvatarImage}
+                                />
+                              ) : (
+                                <View style={styles.guestAvatarPlaceholder}>
+                                  <Text style={styles.guestAvatarText}>
+                                    {guest.first_name?.[0]?.toUpperCase() || '?'}
+                                  </Text>
+                                </View>
+                              )}
                               <View style={styles.guestInfo}>
                                 <Text style={styles.guestName}>
                                   {guest.first_name} {guest.last_name}
                                 </Text>
-                                
                               </View>
                             </View>
                           ))}
@@ -757,7 +772,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 14,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.cardBackground,
     borderRadius: 0,
     marginBottom: 10,
     borderWidth: 1,
@@ -776,6 +791,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
+  },
+  guestAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 14,
+    backgroundColor: COLORS.primary,
   },
   guestInfo: {
     flex: 1,

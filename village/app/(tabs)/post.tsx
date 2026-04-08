@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -6,6 +6,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -56,11 +57,158 @@ interface PlaceSuggestion {
 
 type PollType = 'multiple-choice' | 'checkbox' | 'short-answer';
 
+// ── Range Slider ─────────────────────────────────────────────────────────────
+const THUMB_SIZE = 26;
+const RANGE_MIN = 0;
+const RANGE_MAX = 200;
+const RANGE_STEP = 5;
+
+function valueToPx(val: number, trackW: number) {
+  return ((val - RANGE_MIN) / (RANGE_MAX - RANGE_MIN)) * (trackW - THUMB_SIZE);
+}
+
+function pxToValue(px: number, trackW: number) {
+  if (trackW <= THUMB_SIZE) return RANGE_MIN;
+  const raw = (px / (trackW - THUMB_SIZE)) * (RANGE_MAX - RANGE_MIN) + RANGE_MIN;
+  const clamped = Math.max(RANGE_MIN, Math.min(RANGE_MAX, raw));
+  return Math.round(clamped / RANGE_STEP) * RANGE_STEP;
+}
+
+function RangeSlider({
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+}: {
+  minValue: number;
+  maxValue: number;
+  onMinChange: (v: number) => void;
+  onMaxChange: (v: number) => void;
+}) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const trackWidthRef = useRef(0);
+  const minValueRef = useRef(minValue);
+  const maxValueRef = useRef(maxValue);
+  minValueRef.current = minValue;
+  maxValueRef.current = maxValue;
+  const onMinChangeRef = useRef(onMinChange);
+  onMinChangeRef.current = onMinChange;
+  const onMaxChangeRef = useRef(onMaxChange);
+  onMaxChangeRef.current = onMaxChange;
+  const minStartValue = useRef(minValue);
+  const maxStartValue = useRef(maxValue);
+
+  const minPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        minStartValue.current = minValueRef.current;
+      },
+      onPanResponderMove: (_, gs) => {
+        const tw = trackWidthRef.current;
+        const startPx = valueToPx(minStartValue.current, tw);
+        let newVal = pxToValue(startPx + gs.dx, tw);
+        newVal = Math.min(newVal, maxValueRef.current);
+        onMinChangeRef.current(newVal);
+      },
+    })
+  ).current;
+
+  const maxPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        maxStartValue.current = maxValueRef.current;
+      },
+      onPanResponderMove: (_, gs) => {
+        const tw = trackWidthRef.current;
+        const startPx = valueToPx(maxStartValue.current, tw);
+        let newVal = pxToValue(startPx + gs.dx, tw);
+        newVal = Math.max(newVal, minValueRef.current);
+        onMaxChangeRef.current(newVal);
+      },
+    })
+  ).current;
+
+  const HALF = THUMB_SIZE / 2;
+  const minPx = trackWidth > 0 ? valueToPx(minValue, trackWidth) : 0;
+  const maxPx = trackWidth > 0 ? valueToPx(maxValue, trackWidth) : 0;
+
+  return (
+    <View
+      style={{ height: THUMB_SIZE + 16, justifyContent: 'center' }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        trackWidthRef.current = w;
+        setTrackWidth(w);
+      }}
+    >
+      {/* Background track */}
+      <View
+        style={{
+          position: 'absolute',
+          left: HALF,
+          right: HALF,
+          height: 4,
+          backgroundColor: 'rgba(255,255,255,0.25)',
+          borderRadius: 2,
+        }}
+      />
+      {/* Filled range */}
+      {trackWidth > 0 && (
+        <View
+          style={{
+            position: 'absolute',
+            left: minPx + HALF,
+            width: Math.max(0, maxPx - minPx),
+            height: 4,
+            backgroundColor: '#fff',
+            borderRadius: 2,
+          }}
+        />
+      )}
+      {/* Min thumb */}
+      {trackWidth > 0 && (
+        <View
+          {...minPan.panHandlers}
+          style={{
+            position: 'absolute',
+            left: minPx,
+            width: THUMB_SIZE,
+            height: THUMB_SIZE,
+            borderRadius: HALF,
+            backgroundColor: '#fff',
+          }}
+        />
+      )}
+      {/* Max thumb */}
+      {trackWidth > 0 && (
+        <View
+          {...maxPan.panHandlers}
+          style={{
+            position: 'absolute',
+            left: maxPx,
+            width: THUMB_SIZE,
+            height: THUMB_SIZE,
+            borderRadius: HALF,
+            backgroundColor: '#fff',
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
 export default function PostScreen() {
   const { currentUser } = useAuth();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [priceMin, setPriceMin] = useState(0);
+  const [priceMax, setPriceMax] = useState(50);
+  const [isFree, setIsFree] = useState(true);
   const [address, setAddress] = useState('');
   const [date, setDate] = useState(new Date());
   const [time, setTime] = useState(new Date());
@@ -327,6 +475,8 @@ export default function PostScreen() {
           tagIds: selectedTagIds,
           latitude: finalLat,
           longitude: finalLng,
+          price_min: isFree ? 0 : priceMin,
+          price_max: isFree ? 0 : priceMax,
         }),
       });
 
@@ -340,6 +490,9 @@ export default function PostScreen() {
 
       setTitle('');
       setDescription('');
+      setPriceMin(0);
+      setPriceMax(50);
+      setIsFree(true);
       setAddress('');
       setLocationSuggestions([]);
       setDate(new Date());
@@ -569,6 +722,38 @@ export default function PostScreen() {
             />
           </View>
 
+          <View>
+            <Text style={styles.sectionLabel}>Price</Text>
+            <Pressable style={styles.toggleRow} onPress={() => setIsFree((prev) => !prev)}>
+              <View style={[styles.toggleTrack, isFree && styles.toggleTrackActive]}>
+                <View style={[styles.toggleThumb, isFree && styles.toggleThumbActive]} />
+              </View>
+              <Text style={styles.toggleLabel}>{isFree ? 'Free' : 'Not Free'}</Text>
+            </Pressable>
+
+            {!isFree && (
+              <View style={styles.sliderContainer}>
+                <Text style={styles.priceRangeDisplay}>
+                  ${priceMin} – ${priceMax}
+                </Text>
+
+                <View style={styles.sliderRow}>
+                  <Text style={styles.sliderEdgeLabel}>$0</Text>
+                  <View style={{ flex: 1 }}>
+                    <RangeSlider
+                      minValue={priceMin}
+                      maxValue={priceMax}
+                      onMinChange={setPriceMin}
+                      onMaxChange={setPriceMax}
+                    />
+                  </View>
+                  <Text style={styles.sliderEdgeLabel}>$200</Text>
+                </View>
+
+              </View>
+            )}
+          </View>
+
           <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={loading}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Post</Text>}
           </Pressable>
@@ -740,6 +925,63 @@ const styles = StyleSheet.create({
   descriptionBox: {
     minHeight: 130,
     paddingTop: 16,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  toggleLabel: {
+    color: COLORS.textOnDark,
+    fontSize: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  toggleTrack: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  toggleTrackActive: {
+    backgroundColor: COLORS.yellow,
+  },
+  toggleThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+  },
+  toggleThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  sliderContainer: {
+    gap: 10,
+  },
+  priceRangeDisplay: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.yellow,
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  sliderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sliderEdgeLabel: {
+    color: COLORS.textOnDark,
+    fontSize: 12,
+    fontWeight: '700',
+    width: 34,
+    textAlign: 'center',
   },
   locationGroup: {
     gap: 8,
