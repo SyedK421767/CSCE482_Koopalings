@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { useAuth } from '@/context/auth-context';
@@ -140,6 +140,7 @@ function RangeSlider({
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ editPostId?: string }>();
   const { currentUser, setCurrentUser, setIsSignedIn } = useAuth();
   const insets = useSafeAreaInsets();
   const [hobbies, setHobbies] = useState<string[]>([]);
@@ -223,6 +224,15 @@ export default function ProfileScreen() {
       void fetchMyEvents();
     }, [fetchMyEvents])
   );
+
+  useEffect(() => {
+    const postId = Number(params.editPostId ?? '');
+    if (!postId || myEvents.length === 0) return;
+    const target = myEvents.find((p) => p.postid === postId);
+    if (!target) return;
+    openEditModal(target);
+    router.replace('/(tabs)/profile');
+  }, [params.editPostId, myEvents, openEditModal, router]);
 
   useEffect(() => {
     if (!currentUser) return;
