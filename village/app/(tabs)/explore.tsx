@@ -494,15 +494,17 @@ export default function ExploreScreen() {
                 title="You are here"
               />
 
-              <Circle
-                center={{
-                  latitude: coords.latitude,
-                  longitude: coords.longitude,
-                }}
-                radius={radiusMeters}
-                strokeColor="rgba(29, 78, 216, 0.8)"
-                fillColor="rgba(59, 130, 246, 0.2)"
-              />
+              {radiusEnabled && (
+                <Circle
+                  center={{
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                  }}
+                  radius={radiusMeters}
+                  strokeColor="rgba(29, 78, 216, 0.8)"
+                  fillColor="rgba(59, 130, 246, 0.2)"
+                />
+              )}
 
               {filteredEventMarkers.map((marker) => {
                 if (
