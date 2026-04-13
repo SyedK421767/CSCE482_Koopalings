@@ -102,7 +102,6 @@ router.post('/conversations', async (req: Request, res: Response) => {
     let conversationId: number | null = null;
 
     if (!isGroup) {
-      // Try to reuse existing 1:1 conversation
       const otherUserId = participantIds.find((id) => id !== userId)!;
       const existing = await client.query(
         `
@@ -235,6 +234,52 @@ router.get('/conversations/user/:userId', async (req: Request, res: Response) =>
     return res.status(500).json({ error: 'Failed to fetch conversations' });
   }
 });
+
+// ── NEW: Rename a group conversation ─────────────────────────────────────────
+router.patch('/conversations/:conversationId', async (req: Request, res: Response) => {
+  const conversationId = parseId(req.params.conversationId);
+  const userId = parseId(req.body.userId);
+  const name = String(req.body.name ?? '').trim();
+
+  if (!conversationId || !userId) {
+    return res.status(400).json({ error: 'Valid conversation ID and user ID are required' });
+  }
+
+  if (!name) {
+    return res.status(400).json({ error: 'A non-empty name is required' });
+  }
+
+  try {
+    // Only participants can rename
+    const membership = await pool.query(
+      `SELECT 1 FROM conversation_participants WHERE conversationid = $1 AND userid = $2 LIMIT 1`,
+      [conversationId, userId]
+    );
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'Only participants can rename this conversation' });
+    }
+
+    await pool.query(
+      `UPDATE conversations SET name = $1 WHERE conversationid = $2`,
+      [name, conversationId]
+    );
+
+    const participantIds = await getConversationParticipantIds(conversationId);
+
+    // Re-use conversation_started to trigger a conversations refresh on all clients
+    notifyUsers(participantIds, {
+      type: 'conversation_started',
+      conversationId,
+      userIds: participantIds,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to rename conversation:', err);
+    return res.status(500).json({ error: 'Failed to rename conversation' });
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 router.get('/conversations/:conversationId/participants', async (req: Request, res: Response) => {
   const conversationId = parseId(req.params.conversationId);

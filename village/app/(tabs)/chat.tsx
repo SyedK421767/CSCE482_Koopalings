@@ -241,6 +241,7 @@ const styles = StyleSheet.create({
   threadHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -249,12 +250,15 @@ const styles = StyleSheet.create({
     zIndex: 1,
     padding: 4,
   },
+  infoButton: {
+    zIndex: 1,
+    padding: 4,
+  },
   threadHeaderCenter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+    flex: 1,
     alignItems: 'center',
     gap: 6,
+    marginHorizontal: 8,
   },
   threadTitle: {
     fontSize: 14,
@@ -263,6 +267,42 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     textAlign: 'center',
+  },
+  groupBlock: {
+    marginBottom: 18,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  groupAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+  },
+  groupAvatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupAvatarInitial: {
+    color: COLORS.textOnDark,
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  groupSenderName: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: COLORS.textOnDark,
+  },
+  groupMessageRow: {
+    marginBottom: 8,
   },
   loadingMessages: {
     marginTop: 20,
@@ -541,6 +581,21 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
+  saveNameButton: {
+    backgroundColor: COLORS.yellow,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.yellow,
+    marginBottom: 20,
+  },
+  saveNameButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
   // Avatars in conversation list
   listAvatar: {
     width: 40,
@@ -685,6 +740,59 @@ function includesQuery(source: string | null | undefined, query: string) {
   return String(source ?? '').toLowerCase().includes(query.toLowerCase());
 }
 
+type ChatMessageGroup = {
+  senderId: number;
+  senderName: string;
+  messages: ChatMessage[];
+};
+
+type ChatMessageBlock = ChatMessageGroup | ChatMessage;
+
+function isChatMessageGroup(item: ChatMessageBlock): item is ChatMessageGroup {
+  return 'messages' in item && Array.isArray(item.messages);
+}
+
+function groupMessagesBySender(messages: ChatMessage[], currentUserId: number | null): ChatMessageBlock[] {
+  return messages.reduce<ChatMessageBlock[]>((blocks, message) => {
+    const isMine = message.senderid === currentUserId;
+    if (isMine) {
+      blocks.push(message);
+      return blocks;
+    }
+
+    const senderName = formatName(message.first_name, message.last_name) || `User ${message.senderid}`;
+    const previousBlock = blocks[blocks.length - 1];
+
+    if (
+      previousBlock &&
+      !isChatMessageGroup(previousBlock) &&
+      previousBlock.senderid !== currentUserId &&
+      previousBlock.senderid === message.senderid
+    ) {
+      const previousMessage = previousBlock as ChatMessage;
+      const previousSenderName = formatName(previousMessage.first_name, previousMessage.last_name) || `User ${previousMessage.senderid}`;
+      blocks[blocks.length - 1] = {
+        senderId: previousMessage.senderid,
+        senderName: previousSenderName,
+        messages: [previousMessage, message],
+      };
+      return blocks;
+    }
+
+    if (
+      previousBlock &&
+      isChatMessageGroup(previousBlock) &&
+      previousBlock.senderId === message.senderid
+    ) {
+      previousBlock.messages.push(message);
+      return blocks;
+    }
+
+    blocks.push({ senderId: message.senderid, senderName, messages: [message] });
+    return blocks;
+  }, []);
+}
+
 export default function ChatScreen() {
   const { currentUser } = useAuth();
   const userId = useMemo(() => {
@@ -714,8 +822,14 @@ export default function ChatScreen() {
   const [groupCreating, setGroupCreating] = useState(false);
   const [groupSearch, setGroupSearch] = useState('');
 
+  // ── Group info modal state ──────────────────────────────────────────────────
+  const [groupInfoVisible, setGroupInfoVisible] = useState(false);
+  const [editingGroupName, setEditingGroupName] = useState('');
+  const [savingGroupName, setSavingGroupName] = useState(false);
+  // ───────────────────────────────────────────────────────────────────────────
+
   const selectedConversationRef = useRef<number | null>(null);
-  const messageListRef = useRef<FlatList<ChatMessage>>(null);
+  const messageListRef = useRef<FlatList<any>>(null);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
   useEffect(() => {
@@ -751,6 +865,12 @@ export default function ChatScreen() {
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationid === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
+  );
+
+  const isGroupThread = selectedConversation?.is_group ?? false;
+  const groupedMessageBlocks = useMemo(
+    () => (isGroupThread ? groupMessagesBySender(messages, userId) : []),
+    [messages, isGroupThread, userId]
   );
 
   const filteredConversations = useMemo(() => {
@@ -863,8 +983,6 @@ export default function ChatScreen() {
 
   const loadMessages = useCallback(
     async (conversationId: number) => {
-      // Update ref and state immediately so WebSocket messages that arrive
-      // during the fetch are not dropped by the onmessage handler.
       selectedConversationRef.current = conversationId;
       setSelectedConversationId(conversationId);
       setEditingMessageId(null);
@@ -876,7 +994,6 @@ export default function ChatScreen() {
           return;
         }
         const data = (await res.json()) as ChatMessage[];
-        // Merge fetched messages with any that arrived via WebSocket during the fetch.
         setMessages((prev) => {
           const merged = [...data];
           for (const msg of prev) {
@@ -982,11 +1099,9 @@ export default function ChatScreen() {
               if (msg.senderid !== userId || msg.read_at) {
                 return msg;
               }
-
               if (new Date(msg.sent_at).getTime() <= new Date(payload.readAt).getTime()) {
                 return { ...msg, read_at: payload.readAt };
               }
-
               return msg;
             })
           );
@@ -1047,11 +1162,6 @@ export default function ChatScreen() {
     }
     setGroupCreating(true);
     try {
-      console.log('Creating group chat', {
-        userId,
-        participantIds,
-        groupName,
-      });
       const res = await fetch(`${API_URL}/chat/conversations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1062,10 +1172,7 @@ export default function ChatScreen() {
         }),
       });
       if (!res.ok) {
-        const text = await res
-          .clone()
-          .text()
-          .catch(() => '');
+        const text = await res.clone().text().catch(() => '');
         console.log('Group create failed', res.status, text);
         const payload = await res.json().catch(() => null);
         const serverMessage =
@@ -1214,14 +1321,42 @@ export default function ChatScreen() {
     }
   };
 
+  // ── Rename group conversation ───────────────────────────────────────────────
+  const handleSaveGroupName = async () => {
+    if (!selectedConversationId || !userId || !editingGroupName.trim()) return;
+    setSavingGroupName(true);
+    try {
+      const res = await fetch(`${API_URL}/chat/conversations/${selectedConversationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, name: editingGroupName.trim() }),
+      });
+      if (!res.ok) {
+        Alert.alert('Error', 'Could not update group name.');
+        return;
+      }
+      await loadConversations();
+      setEditingGroupName('');
+      Alert.alert('Success', 'Group name updated!');
+    } catch (err) {
+      console.error('Failed to rename group:', err);
+      Alert.alert('Error', 'Could not update group name.');
+    } finally {
+      setSavingGroupName(false);
+    }
+  };
+  // ───────────────────────────────────────────────────────────────────────────
+
   if (!userId) {
     return (
       <View style={styles.centeredContainer}>
         <Text style={styles.emptyTitle}>Sign in required</Text>
         <Text style={styles.emptySubtitle}>Log in to start messaging other users.</Text>
-    </View>
-  );
-}  const renderList = () => (
+      </View>
+    );
+  }
+
+  const renderList = () => (
     <>
       <TextInput
         value={chatSearch}
@@ -1313,65 +1448,152 @@ export default function ChatScreen() {
       : null;
     return (
       <View style={styles.threadContainer}>
-      <View style={styles.threadHeader}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => {
-            setSelectedConversationId(null);
-            setMessages([]);
-            setEditingMessageId(null);
-            setDraft('');
-          }}
-        >
-          <Ionicons name="arrow-back" size={26} color={COLORS.yellow} />
-        </Pressable>
-        {selectedConversation && (
-          <View style={styles.threadHeaderCenter}>
-            {threadAvatarUserId && profilePics[threadAvatarUserId] ? (
-              <Image source={{ uri: profilePics[threadAvatarUserId]! }} style={styles.threadAvatar} />
-            ) : (
-              <View style={styles.threadAvatarPlaceholder}>
-                <Text style={styles.threadAvatarInitial}>
-                  {(threadDisplayName?.[0] ?? '?').toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <Text style={styles.threadTitle}>
-              {threadDisplayName}
-            </Text>
-          </View>
-        )}
-      </View>
+        <View style={styles.threadHeader}>
+          {/* Back button */}
+          <Pressable
+            style={styles.backButton}
+            onPress={() => {
+              setSelectedConversationId(null);
+              setMessages([]);
+              setEditingMessageId(null);
+              setDraft('');
+            }}
+          >
+            <Ionicons name="arrow-back" size={26} color={COLORS.yellow} />
+          </Pressable>
 
-      <FlatList
-        ref={messageListRef}
-        data={messages}
-        keyExtractor={(item) => item.messageid.toString()}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() => {
-          messageListRef.current?.scrollToEnd({ animated: true });
-          setIsPinnedToBottom(true);
-        }}
-        onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-          const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
-          const distanceFromBottom =
-            contentSize.height - layoutMeasurement.height - contentOffset.y;
-          setIsPinnedToBottom(distanceFromBottom <= 20);
-        }}
-        scrollEventThrottle={100}
-        ListFooterComponent={<View style={styles.messageListFooter} />}
-        renderItem={({ item }) => {
-            const isMine = item.senderid === userId;
+          {/* Centered avatar + name */}
+          {selectedConversation && (
+            <View style={styles.threadHeaderCenter}>
+              {threadAvatarUserId && profilePics[threadAvatarUserId] ? (
+                <Image source={{ uri: profilePics[threadAvatarUserId]! }} style={styles.threadAvatar} />
+              ) : (
+                <View style={styles.threadAvatarPlaceholder}>
+                  <Text style={styles.threadAvatarInitial}>
+                    {(threadDisplayName?.[0] ?? '?').toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.threadTitle}>{threadDisplayName}</Text>
+            </View>
+          )}
+
+          {/* Group info button — only for group chats */}
+          {selectedConversation?.is_group ? (
+            <Pressable
+              style={styles.infoButton}
+              onPress={() => {
+                setEditingGroupName(selectedConversation.conversation_name ?? '');
+                setGroupInfoVisible(true);
+              }}
+            >
+              <Ionicons name="people" size={26} color={COLORS.yellow} />
+            </Pressable>
+          ) : (
+            // Spacer so the center column stays truly centered for 1:1 chats
+            <View style={{ width: 34 }} />
+          )}
+        </View>
+
+        <FlatList
+          ref={messageListRef}
+          data={isGroupThread ? groupedMessageBlocks : messages}
+          keyExtractor={(item) =>
+            isGroupThread && isChatMessageGroup(item)
+              ? `group-${item.senderId}-${item.messages[0]?.messageid}`
+              : (item as ChatMessage).messageid.toString()
+          }
+          contentContainerStyle={styles.messageList}
+          onContentSizeChange={() => {
+            messageListRef.current?.scrollToEnd({ animated: true });
+            setIsPinnedToBottom(true);
+          }}
+          onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
+            const distanceFromBottom =
+              contentSize.height - layoutMeasurement.height - contentOffset.y;
+            setIsPinnedToBottom(distanceFromBottom <= 20);
+          }}
+          scrollEventThrottle={100}
+          ListFooterComponent={<View style={styles.messageListFooter} />}
+          renderItem={({ item }) => {
+            if (isGroupThread && isChatMessageGroup(item)) {
+              const group = item;
+              const senderPfp = profilePics[group.senderId];
+              const senderInitial = group.senderName?.[0]?.toUpperCase() ?? '?';
+
+              return (
+                <View style={styles.groupBlock}>
+                  <View style={styles.groupHeader}>
+                    {senderPfp ? (
+                      <Image source={{ uri: senderPfp }} style={styles.groupAvatar} />
+                    ) : (
+                      <View style={styles.groupAvatarPlaceholder}>
+                        <Text style={styles.groupAvatarInitial}>{senderInitial}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.groupSenderName}>{group.senderName}</Text>
+                  </View>
+
+                  {group.messages.map((message) => {
+                    const isMine = message.senderid === userId;
+                    return (
+                      <View key={message.messageid.toString()} style={[styles.theirWrapper, styles.groupMessageRow]}>
+                        <View style={[styles.messageBubble, styles.theirBubble]}>
+                          <Text style={styles.messageBody}>{message.content}</Text>
+                          {isMine && (
+                            <View style={styles.messageActions}>
+                              <Pressable
+                                onPress={() => {
+                                  setEditingMessageId(message.messageid);
+                                  setDraft(message.content);
+                                }}
+                              >
+                                <Text style={styles.actionText}>Edit</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => {
+                                  Alert.alert('Delete message', 'Delete this message?', [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Delete',
+                                      style: 'destructive',
+                                      onPress: () => {
+                                        void handleDeleteMessage(message.messageid);
+                                      },
+                                    },
+                                  ]);
+                                }}
+                              >
+                                <Text style={styles.actionDeleteText}>Delete</Text>
+                              </Pressable>
+                            </View>
+                          )}
+                        </View>
+                        {isMine && (
+                          <Text style={styles.readReceipt}>
+                            {message.read_at ? `Read ${formatReceiptTime(message.read_at)}` : 'Sent'}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            }
+
+            const message = item as ChatMessage;
+            const isMine = message.senderid === userId;
             return (
               <View style={isMine ? styles.mineWrapper : styles.theirWrapper}>
-                  <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
-                    <Text style={[styles.messageBody, isMine && styles.mineMessageText]}>{item.content}</Text>
+                <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
+                  <Text style={[styles.messageBody, isMine && styles.mineMessageText]}>{message.content}</Text>
                   {isMine && (
                     <View style={styles.messageActions}>
                       <Pressable
                         onPress={() => {
-                          setEditingMessageId(item.messageid);
-                          setDraft(item.content);
+                          setEditingMessageId(message.messageid);
+                          setDraft(message.content);
                         }}
                       >
                         <Text style={styles.actionText}>Edit</Text>
@@ -1384,7 +1606,7 @@ export default function ChatScreen() {
                               text: 'Delete',
                               style: 'destructive',
                               onPress: () => {
-                                void handleDeleteMessage(item.messageid);
+                                void handleDeleteMessage(message.messageid);
                               },
                             },
                           ]);
@@ -1397,7 +1619,7 @@ export default function ChatScreen() {
                 </View>
                 {isMine && (
                   <Text style={styles.readReceipt}>
-                    {item.read_at ? `Read ${formatReceiptTime(item.read_at)}` : 'Sent'}
+                    {message.read_at ? `Read ${formatReceiptTime(message.read_at)}` : 'Sent'}
                   </Text>
                 )}
               </View>
@@ -1406,40 +1628,41 @@ export default function ChatScreen() {
           ListEmptyComponent={<Text style={styles.emptyMessages}>No messages yet.</Text>}
         />
 
-      {editingMessageId && (
-        <View style={styles.editBanner}>
-          <Text style={styles.editBannerText}>Editing message</Text>
+        {editingMessageId && (
+          <View style={styles.editBanner}>
+            <Text style={styles.editBannerText}>Editing message</Text>
+            <Pressable
+              onPress={() => {
+                setEditingMessageId(null);
+                setDraft('');
+              }}
+            >
+              <Text style={styles.cancelEditText}>Cancel</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.composerRow}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
+            style={styles.composerInput}
+          />
           <Pressable
-            onPress={() => {
-              setEditingMessageId(null);
-              setDraft('');
-            }}
+            style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={sending}
           >
-            <Text style={styles.cancelEditText}>Cancel</Text>
+            <Text style={styles.sendButtonText}>
+              {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
+            </Text>
           </Pressable>
         </View>
-      )}
-
-      <View style={styles.composerRow}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
-          style={styles.composerInput}
-        />
-        <Pressable
-          style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={sending}
-        >
-          <Text style={styles.sendButtonText}>
-            {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
-          </Text>
-        </Pressable>
       </View>
-    </View>
-  );
-  }
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -1492,6 +1715,7 @@ export default function ChatScreen() {
 
       {selectedConversationId ? renderThread() : renderList()}
 
+      {/* ── Start a Chat modal ──────────────────────────────────────────────── */}
       <Modal visible={showUsersModal} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={() => setShowUsersModal(false)}>
           <View style={styles.modalSheet}>
@@ -1526,6 +1750,8 @@ export default function ChatScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* ── New Group modal ─────────────────────────────────────────────────── */}
       <Modal visible={groupModalVisible} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={closeGroupModal}>
           <View style={styles.modalSheet}>
@@ -1553,9 +1779,7 @@ export default function ChatScreen() {
                     style={[styles.groupUserRow, selected && styles.groupUserRowSelected]}
                     onPress={() => toggleGroupSelection(item.userid)}
                   >
-                    <Text
-                      style={[styles.userName, selected && styles.groupUserNameSelected]}
-                    >
+                    <Text style={[styles.userName, selected && styles.groupUserNameSelected]}>
                       {formatName(item.first_name, item.last_name)}
                     </Text>
                     <Text style={styles.userEmail}>{item.email}</Text>
@@ -1577,6 +1801,60 @@ export default function ChatScreen() {
             </Pressable>
             <Pressable style={styles.closeModalButton} onPress={closeGroupModal}>
               <Text style={styles.closeModalButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── Group Info modal (rename + member list) ─────────────────────────── */}
+      <Modal visible={groupInfoVisible} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setGroupInfoVisible(false)}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Group Info</Text>
+
+            <Text style={styles.modalSectionLabel}>Rename Group</Text>
+            <TextInput
+              value={editingGroupName}
+              onChangeText={setEditingGroupName}
+              placeholder={selectedConversation?.conversation_name ?? 'Enter a group name'}
+              placeholderTextColor={COLORS.textLight}
+              style={styles.searchInput}
+            />
+            <Pressable
+              style={[
+                styles.saveNameButton,
+                (!editingGroupName.trim() || savingGroupName) && styles.deleteSelectedButtonDisabled,
+              ]}
+              onPress={handleSaveGroupName}
+              disabled={!editingGroupName.trim() || savingGroupName}
+            >
+              <Text style={styles.saveNameButtonText}>
+                {savingGroupName ? 'Saving…' : 'Save Name'}
+              </Text>
+            </Pressable>
+
+            <Text style={styles.modalSectionLabel}>
+              Members ({selectedConversation?.participants.length ?? 0})
+            </Text>
+            <FlatList
+              data={selectedConversation?.participants ?? []}
+              keyExtractor={(item) => item.userid.toString()}
+              renderItem={({ item }) => (
+                <View style={styles.userRow}>
+                  <Text style={styles.userName}>
+                    {formatName(item.first_name, item.last_name)}
+                    {item.userid === userId ? '  (You)' : ''}
+                  </Text>
+                  <Text style={styles.userEmail}>{item.email}</Text>
+                </View>
+              )}
+            />
+
+            <Pressable
+              style={styles.closeModalButton}
+              onPress={() => setGroupInfoVisible(false)}
+            >
+              <Text style={styles.closeModalButtonText}>Close</Text>
             </Pressable>
           </View>
         </Pressable>
