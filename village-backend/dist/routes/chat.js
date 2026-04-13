@@ -17,6 +17,16 @@ async function getConversationParticipantIds(conversationId) {
     const participants = await db_1.default.query('SELECT userid FROM conversation_participants WHERE conversationid = $1', [conversationId]);
     return participants.rows.map((row) => row.userid);
 }
+async function getConversationParticipants(conversationId) {
+    const result = await db_1.default.query(`
+    SELECT u.userid, u.first_name, u.last_name, u.email
+    FROM conversation_participants cp
+    JOIN users u ON u.userid = cp.userid
+    WHERE cp.conversationid = $1
+    ORDER BY cp.joined_at ASC NULLS LAST, u.first_name
+    `, [conversationId]);
+    return result.rows;
+}
 router.get('/users', async (req, res) => {
     const excludeUserId = parseId(req.query.excludeUserId);
     try {
@@ -35,37 +45,61 @@ router.get('/users', async (req, res) => {
 });
 router.post('/conversations', async (req, res) => {
     const userId = parseId(req.body.userId);
-    const otherUserId = parseId(req.body.otherUserId);
-    if (!userId || !otherUserId || userId === otherUserId) {
-        return res.status(400).json({ error: 'Valid user IDs are required' });
+    const requestedParticipants = Array.isArray(req.body.participantIds)
+        ? req.body.participantIds.map((id) => parseId(id)).filter(Boolean)
+        : [];
+    const name = String(req.body.name ?? '').trim();
+    console.log('chat create payload', {
+        rawBody: req.body,
+        userIdCandidate: req.body.userId,
+        participantIdsCandidate: req.body.participantIds,
+    });
+    if (!userId || requestedParticipants.length === 0) {
+        return res.status(400).json({ error: 'At least one valid participant ID is required' });
     }
+    const participantIds = Array.from(new Set([...requestedParticipants, userId]));
+    if (participantIds.length < 2) {
+        return res.status(400).json({ error: 'A conversation requires at least two participants' });
+    }
+    const isGroup = participantIds.length > 2 || Boolean(name);
     const client = await db_1.default.connect();
     try {
         await client.query('BEGIN');
-        const existing = await client.query(`
-      SELECT c.conversationid
-      FROM conversations c
-      JOIN conversation_participants cp1
-        ON cp1.conversationid = c.conversationid AND cp1.userid = $1
-      JOIN conversation_participants cp2
-        ON cp2.conversationid = c.conversationid AND cp2.userid = $2
-      LIMIT 1
-      `, [userId, otherUserId]);
-        let conversationId;
-        if (existing.rows.length > 0) {
-            conversationId = existing.rows[0].conversationid;
+        let conversationId = null;
+        if (!isGroup) {
+            // Try to reuse existing 1:1 conversation
+            const otherUserId = participantIds.find((id) => id !== userId);
+            const existing = await client.query(`
+        SELECT c.conversationid
+        FROM conversations c
+        JOIN conversation_participants cp1
+          ON cp1.conversationid = c.conversationid AND cp1.userid = $1
+        JOIN conversation_participants cp2
+          ON cp2.conversationid = c.conversationid AND cp2.userid = $2
+        LIMIT 1
+        `, [userId, otherUserId]);
+            if (existing.rows.length > 0) {
+                conversationId = existing.rows[0].conversationid;
+            }
         }
-        else {
-            const created = await client.query('INSERT INTO conversations DEFAULT VALUES RETURNING conversationid');
+        if (!conversationId) {
+            const fields = ['name', 'is_group', 'owner_userid'];
+            const values = [name || null, isGroup, userId];
+            const created = await client.query(`INSERT INTO conversations (${fields.join(', ')})
+         VALUES ($1, $2, $3)
+         RETURNING conversationid`, values);
             conversationId = created.rows[0].conversationid;
+            const participantPlaceholders = participantIds
+                .map((_, idx) => `($1, $${idx + 2})`)
+                .join(', ');
             await client.query(`
         INSERT INTO conversation_participants (conversationid, userid)
-        VALUES ($1, $2), ($1, $3)
-        `, [conversationId, userId, otherUserId]);
-            (0, wsHub_1.notifyUsers)([userId, otherUserId], {
+        VALUES ${participantPlaceholders}
+        `, [conversationId, ...participantIds]);
+            (0, wsHub_1.notifyUsers)(participantIds, {
                 type: 'conversation_started',
                 conversationId,
-                userIds: [userId, otherUserId],
+                userIds: participantIds,
             });
         }
         await client.query('COMMIT');
@@ -89,6 +123,9 @@ router.get('/conversations/user/:userId', async (req, res) => {
         const result = await db_1.default.query(`
       SELECT
         c.conversationid,
+        c.name AS conversation_name,
+        c.is_group,
+        c.owner_userid,
         other.userid AS other_userid,
         other.first_name,
         other.last_name,
@@ -98,16 +135,20 @@ router.get('/conversations/user/:userId', async (req, res) => {
         m.content AS last_message,
         m.sent_at AS last_message_at,
         m.read_at AS last_message_read_at,
-        COALESCE(unread.unread_count, 0) AS unread_count
+        COALESCE(unread.unread_count, 0) AS unread_count,
+        COALESCE(participants.participants, '[]') AS participants
       FROM conversations c
       JOIN conversation_participants selfp
         ON selfp.conversationid = c.conversationid
        AND selfp.userid = $1
-      JOIN conversation_participants otherp
-        ON otherp.conversationid = c.conversationid
-       AND otherp.userid <> $1
-      JOIN users other
-        ON other.userid = otherp.userid
+      LEFT JOIN LATERAL (
+        SELECT u.userid, u.first_name, u.last_name, u.email
+        FROM conversation_participants cp2
+        JOIN users u ON u.userid = cp2.userid
+        WHERE cp2.conversationid = c.conversationid AND cp2.userid <> $1
+        ORDER BY cp2.joined_at ASC NULLS LAST
+        LIMIT 1
+      ) other ON TRUE
       LEFT JOIN LATERAL (
         SELECT messageid, senderid, content, sent_at, read_at
         FROM messages
@@ -122,6 +163,17 @@ router.get('/conversations/user/:userId', async (req, res) => {
           AND um.senderid <> $1
           AND um.read_at IS NULL
       ) unread ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object(
+          'userid', u.userid,
+          'first_name', u.first_name,
+          'last_name', u.last_name,
+          'email', u.email
+        )) AS participants
+        FROM conversation_participants cp3
+        JOIN users u ON u.userid = cp3.userid
+        WHERE cp3.conversationid = c.conversationid
+      ) participants ON TRUE
       WHERE m.messageid IS NOT NULL
       ORDER BY COALESCE(m.sent_at, c.created_at) DESC
       `, [userId]);
@@ -130,6 +182,70 @@ router.get('/conversations/user/:userId', async (req, res) => {
     catch (err) {
         console.error('Failed to fetch conversations:', err);
         return res.status(500).json({ error: 'Failed to fetch conversations' });
+    }
+});
+router.get('/conversations/:conversationId/participants', async (req, res) => {
+    const conversationId = parseId(req.params.conversationId);
+    if (!conversationId) {
+        return res.status(400).json({ error: 'Valid conversation ID is required' });
+    }
+    try {
+        const participants = await getConversationParticipants(conversationId);
+        return res.json(participants);
+    }
+    catch (err) {
+        console.error('Failed to fetch participants:', err);
+        return res.status(500).json({ error: 'Failed to fetch participants' });
+    }
+});
+router.post('/conversations/:conversationId/participants', async (req, res) => {
+    const conversationId = parseId(req.params.conversationId);
+    const userId = parseId(req.body.userId);
+    const requestedIds = Array.isArray(req.body.participantIds)
+        ? req.body.participantIds.map((id) => parseId(id)).filter(Boolean)
+        : [];
+    if (!conversationId || !userId || requestedIds.length === 0) {
+        return res.status(400).json({ error: 'Valid conversation ID, user ID, and participant IDs are required' });
+    }
+    const uniqueIds = Array.from(new Set(requestedIds));
+    try {
+        const membership = await db_1.default.query(`
+      SELECT 1
+      FROM conversation_participants
+      WHERE conversationid = $1 AND userid = $2
+      LIMIT 1
+      `, [conversationId, userId]);
+        if (membership.rowCount === 0) {
+            return res.status(403).json({ error: 'Only participants can add members' });
+        }
+        const existingIdsResult = await db_1.default.query(`
+      SELECT userid
+      FROM conversation_participants
+      WHERE conversationid = $1
+      `, [conversationId]);
+        const existingIds = new Set(existingIdsResult.rows.map((row) => row.userid));
+        const newIds = uniqueIds.filter((id) => !existingIds.has(id));
+        if (newIds.length > 0) {
+            const participantPlaceholders = newIds
+                .map((_, idx) => `($1, $${idx + 2})`)
+                .join(', ');
+            await db_1.default.query(`
+        INSERT INTO conversation_participants (conversationid, userid)
+        VALUES ${participantPlaceholders}
+        `, [conversationId, ...newIds]);
+            const participantIds = [...existingIds, ...newIds];
+            (0, wsHub_1.notifyUsers)(participantIds, {
+                type: 'conversation_started',
+                conversationId,
+                userIds: participantIds,
+            });
+        }
+        const participants = await getConversationParticipants(conversationId);
+        return res.json(participants);
+    }
+    catch (err) {
+        console.error('Failed to add participants:', err);
+        return res.status(500).json({ error: 'Failed to add participants' });
     }
 });
 router.get('/conversations/:conversationId/messages', async (req, res) => {
