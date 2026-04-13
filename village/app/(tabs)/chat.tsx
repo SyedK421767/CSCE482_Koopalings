@@ -306,6 +306,9 @@ const styles = StyleSheet.create({
   groupMessageRow: {
     marginBottom: 8,
   },
+  iconButton: {
+    padding: 8,
+  },
   loadingMessages: {
     marginTop: 20,
   },
@@ -1719,17 +1722,16 @@ const renderThread = () => {
               </>
             ) : (
               <>
-                <Pressable style={styles.editChatsButton} onPress={() => setIsSelectingChats(true)}>
-                  <Text style={styles.editChatsButtonText}>Edit</Text>
+                <Pressable style={styles.iconButton} onPress={() => setIsSelectingChats(true)}>
+                  <Ionicons name="create-outline" size={24} color={COLORS.yellow} />
                 </Pressable>
-                <Pressable style={styles.newChatButton} onPress={() => setShowUsersModal(true)}>
-                  <Text style={styles.newChatButtonText}>New Chat</Text>
+
+                <Pressable style={styles.iconButton} onPress={() => setShowUsersModal(true)}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={24} color={COLORS.yellow} />
                 </Pressable>
-                <Pressable
-                  style={[styles.newChatButton, styles.newGroupButton]}
-                  onPress={() => setGroupModalVisible(true)}
-                >
-                  <Text style={[styles.newChatButtonText, styles.newGroupButtonText]}>New Group</Text>
+
+                <Pressable style={styles.iconButton} onPress={() => setGroupModalVisible(true)}>
+                  <Ionicons name="people-outline" size={24} color={COLORS.yellow} />
                 </Pressable>
               </>
             )}
