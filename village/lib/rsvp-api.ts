@@ -1,4 +1,4 @@
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+import { API_URL } from '@/lib/config';
 
 export type RsvpCategory = 'none' | 'few' | 'some' | 'many' | 'lots';
 

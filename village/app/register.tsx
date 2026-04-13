@@ -1,10 +1,17 @@
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+
+function showAlert(title: string, message: string) {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    showAlert(title, message);
+  }
+}
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/auth-context';
-
-const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
+import { API_URL } from '@/lib/config';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
 
@@ -56,22 +63,22 @@ export default function RegisterScreen() {
 
     const fields = [trimmedFirstName, trimmedLastName, rawPhoneNumber, trimmedEmail, enteredPassword];
     if (fields.some((field) => field.length === 0)) {
-      Alert.alert('Missing information', 'All fields are required.');
+      showAlert('Missing information', 'All fields are required.');
       return;
     }
 
     if (!normalizedPhoneNumber) {
-      Alert.alert('Invalid phone number', 'Please enter a valid 10-digit phone number.');
+      showAlert('Invalid phone number', 'Please enter a valid 10-digit phone number.');
       return;
     }
 
     if (!EMAIL_REGEX.test(trimmedEmail)) {
-      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      showAlert('Invalid email', 'Please enter a valid email address.');
       return;
     }
 
     if (!PASSWORD_REGEX.test(enteredPassword)) {
-      Alert.alert(
+      showAlert(
         'Weak password',
         'Password must be at least 12 characters and include one uppercase letter, one number, and one special character.'
       );
@@ -96,36 +103,36 @@ export default function RegisterScreen() {
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
         if (payload?.error === 'Phone number is already registered') {
-          Alert.alert('Phone already registered', 'That phone number is already registered.');
+          showAlert('Phone already registered', 'That phone number is already registered.');
           return;
         }
         if (payload?.error === 'Please enter a valid 10-digit phone number') {
-          Alert.alert('Invalid phone number', 'Please enter a valid 10-digit phone number.');
+          showAlert('Invalid phone number', 'Please enter a valid 10-digit phone number.');
           return;
         }
         if (payload?.error === 'Email is already registered') {
-          Alert.alert('Email already registered', 'That email is already registered.');
+          showAlert('Email already registered', 'That email is already registered.');
           return;
         }
         if (payload?.error === 'Please enter a valid email address') {
-          Alert.alert('Invalid email', 'Please enter a valid email address.');
+          showAlert('Invalid email', 'Please enter a valid email address.');
           return;
         }
         if (
           payload?.error ===
           'Password must be at least 12 characters and include one uppercase letter, one number, and one special character'
         ) {
-          Alert.alert(
+          showAlert(
             'Weak password',
             'Password must be at least 12 characters and include one uppercase letter, one number, and one special character.'
           );
           return;
         }
         if (payload?.error === 'All fields are required') {
-          Alert.alert('Missing information', 'All fields are required.');
+          showAlert('Missing information', 'All fields are required.');
           return;
         }
-        Alert.alert('Error', payload?.error || 'Could not create account.');
+        showAlert('Error', payload?.error || 'Could not create account.');
         return;
       }
 
@@ -137,7 +144,7 @@ export default function RegisterScreen() {
       router.replace('/onboarding-interests');
     } catch (e) {
       console.error('Network error:', e);
-      Alert.alert('Error', 'Network error. Try again.');
+      showAlert('Error', 'Network error. Try again.');
     } finally {
       setSubmitting(false);
     }

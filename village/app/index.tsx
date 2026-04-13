@@ -4,8 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '@/context/auth-context';
-
-const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
+import { API_URL } from '@/lib/config';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Color Theme - matching home and explore pages

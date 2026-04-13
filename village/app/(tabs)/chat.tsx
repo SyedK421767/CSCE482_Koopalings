@@ -15,8 +15,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/auth-context';
 
-const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
-const WS_URL = `${API_URL.replace(/^http/, 'ws')}/ws`;
+import { API_URL, WS_URL } from '@/lib/config';
+
 const PROFILES_API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
 
 const COLORS = {

@@ -5,8 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
 import { useAuth } from '@/context/auth-context';
 import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, getUserRsvps, RsvpInfo, toggleRsvp } from '@/lib/rsvp-api';
-
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+import { API_URL } from '@/lib/config';
 
 // Color Theme - Modernist colorful palette
 const COLORS = {

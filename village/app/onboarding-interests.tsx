@@ -5,8 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/auth-context';
 import { HobbyPicker, type HobbyTag } from '@/components/hobby-picker';
-
-const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
+import { API_URL } from '@/lib/config';
 
 // Color Theme - matching home and explore pages
 const COLORS = {

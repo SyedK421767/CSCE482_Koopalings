@@ -10,8 +10,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { useAuth } from '@/context/auth-context';
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
 import { getRsvpInfo, RsvpInfoOwner } from '@/lib/rsvp-api';
-
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+import { API_URL } from '@/lib/config';
 
 const COLORS = {
   background: '#062f66',

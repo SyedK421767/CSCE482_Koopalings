@@ -20,8 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 
 import { getPostAuthorDisplayName, useAuth } from '@/context/auth-context';
-
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+import { API_URL } from '@/lib/config';
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 const SAMPLE_IMAGE =

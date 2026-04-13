@@ -22,8 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useAuth } from '@/context/auth-context';
 import { checkRsvpStatus, formatRsvpCategory, getRsvpInfo, RsvpInfo, toggleRsvp } from '@/lib/rsvp-api';
-
-const API_URL = 'https://village-backend-4f6m46wkfq-uc.a.run.app';
+import { API_URL } from '@/lib/config';
 
 // Color Theme - matching home page
 const COLORS = {

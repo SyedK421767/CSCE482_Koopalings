@@ -1,0 +1,13 @@
+{
+  "name": "csce482-koopalings",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd village && npm install && cd ../village-backend && npm install",
+    "web": "concurrently -n backend,expo -c blue,green \"cd village-backend && npm run dev\" \"cd village && npx expo start --web\"",
+    "mobile": "bash dev-mobile.sh",
+    "backend": "cd village-backend && npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
