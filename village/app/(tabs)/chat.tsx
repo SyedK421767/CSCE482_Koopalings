@@ -4,9 +4,11 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -372,6 +374,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   composerRow: {
+    backgroundColor: COLORS.background,
     flexDirection: 'row',
     gap: 10,
     borderTopWidth: 3,
@@ -1304,68 +1307,76 @@ export default function ChatScreen() {
     </>
   );
 
-  const renderThread = () => {
-    const threadDisplayName = selectedConversation
-      ? getConversationDisplayName(selectedConversation, userId)
-      : 'Chat';
-    const threadAvatarUserId = selectedConversation
-      ? selectConversationAvatarUserId(selectedConversation, userId)
-      : null;
-    return (
-      <View style={styles.threadContainer}>
-      <View style={styles.threadHeader}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => {
-            setSelectedConversationId(null);
-            setMessages([]);
-            setEditingMessageId(null);
-            setDraft('');
-          }}
-        >
-          <Ionicons name="arrow-back" size={26} color={COLORS.yellow} />
-        </Pressable>
-        {selectedConversation && (
-          <View style={styles.threadHeaderCenter}>
-            {threadAvatarUserId && profilePics[threadAvatarUserId] ? (
-              <Image source={{ uri: profilePics[threadAvatarUserId]! }} style={styles.threadAvatar} />
-            ) : (
-              <View style={styles.threadAvatarPlaceholder}>
-                <Text style={styles.threadAvatarInitial}>
-                  {(threadDisplayName?.[0] ?? '?').toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <Text style={styles.threadTitle}>
-              {threadDisplayName}
-            </Text>
-          </View>
-        )}
-      </View>
+const renderThread = () => {
+  const threadDisplayName = selectedConversation
+    ? getConversationDisplayName(selectedConversation, userId)
+    : 'Chat';
+  const threadAvatarUserId = selectedConversation
+    ? selectConversationAvatarUserId(selectedConversation, userId)
+    : null;
 
-      <FlatList
-        ref={messageListRef}
-        data={messages}
-        keyExtractor={(item) => item.messageid.toString()}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() => {
-          messageListRef.current?.scrollToEnd({ animated: true });
-          setIsPinnedToBottom(true);
-        }}
-        onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-          const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
-          const distanceFromBottom =
-            contentSize.height - layoutMeasurement.height - contentOffset.y;
-          setIsPinnedToBottom(distanceFromBottom <= 20);
-        }}
-        scrollEventThrottle={100}
-        ListFooterComponent={<View style={styles.messageListFooter} />}
-        renderItem={({ item }) => {
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+    >
+      <View style={styles.threadContainer}>
+        <View style={styles.threadHeader}>
+          <Pressable
+            style={styles.backButton}
+            onPress={() => {
+              setSelectedConversationId(null);
+              setMessages([]);
+              setEditingMessageId(null);
+              setDraft('');
+            }}
+          >
+            <Ionicons name="arrow-back" size={26} color={COLORS.yellow} />
+          </Pressable>
+
+          {selectedConversation && (
+            <View style={styles.threadHeaderCenter}>
+              {threadAvatarUserId && profilePics[threadAvatarUserId] ? (
+                <Image source={{ uri: profilePics[threadAvatarUserId]! }} style={styles.threadAvatar} />
+              ) : (
+                <View style={styles.threadAvatarPlaceholder}>
+                  <Text style={styles.threadAvatarInitial}>
+                    {(threadDisplayName?.[0] ?? '?').toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.threadTitle}>{threadDisplayName}</Text>
+            </View>
+          )}
+        </View>
+
+        <FlatList
+          ref={messageListRef}
+          data={messages}
+          keyExtractor={(item) => item.messageid.toString()}
+          contentContainerStyle={styles.messageList}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => {
+            messageListRef.current?.scrollToEnd({ animated: true });
+            setIsPinnedToBottom(true);
+          }}
+          onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
+            const distanceFromBottom =
+              contentSize.height - layoutMeasurement.height - contentOffset.y;
+            setIsPinnedToBottom(distanceFromBottom <= 20);
+          }}
+          scrollEventThrottle={100}
+          ListFooterComponent={<View style={styles.messageListFooter} />}
+          renderItem={({ item }) => {
             const isMine = item.senderid === userId;
             return (
               <View style={isMine ? styles.mineWrapper : styles.theirWrapper}>
-                  <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
-                    <Text style={[styles.messageBody, isMine && styles.mineMessageText]}>{item.content}</Text>
+                <View style={[styles.messageBubble, isMine ? styles.mineBubble : styles.theirBubble]}>
+                  <Text style={[styles.messageBody, isMine && styles.mineMessageText]}>
+                    {item.content}
+                  </Text>
                   {isMine && (
                     <View style={styles.messageActions}>
                       <Pressable
@@ -1406,40 +1417,41 @@ export default function ChatScreen() {
           ListEmptyComponent={<Text style={styles.emptyMessages}>No messages yet.</Text>}
         />
 
-      {editingMessageId && (
-        <View style={styles.editBanner}>
-          <Text style={styles.editBannerText}>Editing message</Text>
+        {editingMessageId && (
+          <View style={styles.editBanner}>
+            <Text style={styles.editBannerText}>Editing message</Text>
+            <Pressable
+              onPress={() => {
+                setEditingMessageId(null);
+                setDraft('');
+              }}
+            >
+              <Text style={styles.cancelEditText}>Cancel</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.composerRow}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
+            style={styles.composerInput}
+          />
           <Pressable
-            onPress={() => {
-              setEditingMessageId(null);
-              setDraft('');
-            }}
+            style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={sending}
           >
-            <Text style={styles.cancelEditText}>Cancel</Text>
+            <Text style={styles.sendButtonText}>
+              {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
+            </Text>
           </Pressable>
         </View>
-      )}
-
-      <View style={styles.composerRow}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
-          style={styles.composerInput}
-        />
-        <Pressable
-          style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={sending}
-        >
-          <Text style={styles.sendButtonText}>
-            {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
-          </Text>
-        </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
-  }
+};
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
