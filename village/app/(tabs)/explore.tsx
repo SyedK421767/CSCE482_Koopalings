@@ -485,14 +485,6 @@ export default function ExploreScreen() {
               initialRegion={mapRegion}
               showsUserLocation
             >
-              <Marker
-                tracksViewChanges={false}
-                coordinate={{
-                  latitude: coords.latitude,
-                  longitude: coords.longitude,
-                }}
-                title="You are here"
-              />
 
               {radiusEnabled && (
                 <Circle
