@@ -9,6 +9,10 @@ async function ensureChatTables() {
     await db_1.default.query(`
     CREATE TABLE IF NOT EXISTS conversations (
       conversationid SERIAL PRIMARY KEY,
+      name TEXT,
+      is_group BOOLEAN NOT NULL DEFAULT FALSE,
+      owner_userid INTEGER REFERENCES users(userid) ON DELETE SET NULL,
+      avatar_url TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -16,6 +20,8 @@ async function ensureChatTables() {
     CREATE TABLE IF NOT EXISTS conversation_participants (
       conversationid INTEGER NOT NULL REFERENCES conversations(conversationid) ON DELETE CASCADE,
       userid INTEGER NOT NULL REFERENCES users(userid) ON DELETE CASCADE,
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      role TEXT NOT NULL DEFAULT 'member',
       PRIMARY KEY (conversationid, userid)
     );
   `);

@@ -75,6 +75,7 @@ router.post('/login', async (req, res) => {
         return res.status(400).json({ error: 'Please enter a valid email address' });
     }
     try {
+        console.log('Login attempt for email:', normalizedEmail);
         const result = await db_1.default.query(`
       SELECT userid, password
       FROM users
@@ -82,12 +83,16 @@ router.post('/login', async (req, res) => {
       LIMIT 1
       `, [normalizedEmail]);
         if (result.rows.length === 0) {
+            console.log('No user found with email:', normalizedEmail);
             return res.status(401).json({ error: 'Incorrect credentials' });
         }
         const user = result.rows[0];
+        console.log('User found, checking password...');
         if (user.password !== normalizedPassword) {
+            console.log('Password mismatch');
             return res.status(401).json({ error: 'Incorrect credentials' });
         }
+        console.log('Login successful for user:', user.userid);
         const profile = await fetchUserProfile(user.userid);
         if (!profile) {
             return res.status(500).json({ error: 'User profile missing' });
