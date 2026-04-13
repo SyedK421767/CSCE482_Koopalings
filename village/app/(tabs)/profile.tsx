@@ -225,6 +225,24 @@ export default function ProfileScreen() {
     }, [fetchMyEvents])
   );
 
+  const openEditModal = (post: Post) => {
+    const dt = post.start_time ? new Date(post.start_time) : new Date();
+    const pMin = Number(post.price_min ?? 0);
+    const pMax = Number(post.price_max ?? 0);
+    setEditTitle(post.title ?? '');
+    setEditDescription(post.description ?? '');
+    setEditLocation(post.location ?? '');
+    setEditDate(dt);
+    setEditTime(dt);
+    setEditImage(null);
+    setEditIsFree(pMin === 0 && pMax === 0);
+    setEditPriceMin(pMin === 0 && pMax === 0 ? 0 : pMin);
+    setEditPriceMax(pMin === 0 && pMax === 0 ? 50 : pMax);
+    setShowEditDatePicker(false);
+    setShowEditTimePicker(false);
+    setEditingPost(post);
+  };
+
   useEffect(() => {
     const postId = Number(params.editPostId ?? '');
     if (!postId || myEvents.length === 0) return;
@@ -294,24 +312,6 @@ export default function ProfileScreen() {
     () => `${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim(),
     [currentUser]
   );
-
-  const openEditModal = (post: Post) => {
-    const dt = post.start_time ? new Date(post.start_time) : new Date();
-    const pMin = Number(post.price_min ?? 0);
-    const pMax = Number(post.price_max ?? 0);
-    setEditTitle(post.title ?? '');
-    setEditDescription(post.description ?? '');
-    setEditLocation(post.location ?? '');
-    setEditDate(dt);
-    setEditTime(dt);
-    setEditImage(null);
-    setEditIsFree(pMin === 0 && pMax === 0);
-    setEditPriceMin(pMin === 0 && pMax === 0 ? 0 : pMin);
-    setEditPriceMax(pMin === 0 && pMax === 0 ? 50 : pMax);
-    setShowEditDatePicker(false);
-    setShowEditTimePicker(false);
-    setEditingPost(post);
-  };
 
   const pickEditImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
