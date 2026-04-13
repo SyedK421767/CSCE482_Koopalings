@@ -4,9 +4,11 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -412,6 +414,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   composerRow: {
+    backgroundColor: COLORS.background,
     flexDirection: 'row',
     gap: 10,
     borderTopWidth: 3,
@@ -1439,14 +1442,20 @@ export default function ChatScreen() {
     </>
   );
 
-  const renderThread = () => {
-    const threadDisplayName = selectedConversation
-      ? getConversationDisplayName(selectedConversation, userId)
-      : 'Chat';
-    const threadAvatarUserId = selectedConversation
-      ? selectConversationAvatarUserId(selectedConversation, userId)
-      : null;
-    return (
+const renderThread = () => {
+  const threadDisplayName = selectedConversation
+    ? getConversationDisplayName(selectedConversation, userId)
+    : 'Chat';
+  const threadAvatarUserId = selectedConversation
+    ? selectConversationAvatarUserId(selectedConversation, userId)
+    : null;
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+    >
       <View style={styles.threadContainer}>
         <View style={styles.threadHeader}>
           {/* Back button */}
@@ -1495,28 +1504,29 @@ export default function ChatScreen() {
           )}
         </View>
 
-        <FlatList
-          ref={messageListRef}
-          data={isGroupThread ? groupedMessageBlocks : messages}
-          keyExtractor={(item) =>
+          <FlatList
+            ref={messageListRef}
+            data={isGroupThread ? groupedMessageBlocks : messages}
+            keyExtractor={(item) =>
             isGroupThread && isChatMessageGroup(item)
               ? `group-${item.senderId}-${item.messages[0]?.messageid}`
               : (item as ChatMessage).messageid.toString()
           }
-          contentContainerStyle={styles.messageList}
+            contentContainerStyle={styles.messageList}
+            keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => {
-            messageListRef.current?.scrollToEnd({ animated: true });
-            setIsPinnedToBottom(true);
-          }}
-          onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-            const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
-            const distanceFromBottom =
-              contentSize.height - layoutMeasurement.height - contentOffset.y;
-            setIsPinnedToBottom(distanceFromBottom <= 20);
-          }}
-          scrollEventThrottle={100}
-          ListFooterComponent={<View style={styles.messageListFooter} />}
-          renderItem={({ item }) => {
+              messageListRef.current?.scrollToEnd({ animated: true });
+              setIsPinnedToBottom(true);
+            }}
+            onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+              const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
+              const distanceFromBottom =
+                contentSize.height - layoutMeasurement.height - contentOffset.y;
+              setIsPinnedToBottom(distanceFromBottom <= 20);
+            }}
+            scrollEventThrottle={100}
+            ListFooterComponent={<View style={styles.messageListFooter} />}
+            renderItem={({ item }) => {
             if (isGroupThread && isChatMessageGroup(item)) {
               const group = item;
               const senderPfp = profilePics[group.senderId];
@@ -1641,27 +1651,41 @@ export default function ChatScreen() {
             </Pressable>
           </View>
         )}
+        {editingMessageId && (
+          <View style={styles.editBanner}>
+            <Text style={styles.editBannerText}>Editing message</Text>
+            <Pressable
+              onPress={() => {
+                setEditingMessageId(null);
+                setDraft('');
+              }}
+            >
+              <Text style={styles.cancelEditText}>Cancel</Text>
+            </Pressable>
+          </View>
+        )}
 
-        <View style={styles.composerRow}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
-            style={styles.composerInput}
-          />
-          <Pressable
-            style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-            onPress={handleSend}
-            disabled={sending}
-          >
-            <Text style={styles.sendButtonText}>
-              {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
-            </Text>
-          </Pressable>
+          <View style={styles.composerRow}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder={editingMessageId ? 'Edit message' : 'Type a message'}
+              style={styles.composerInput}
+            />
+            <Pressable
+              style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+              onPress={handleSend}
+              disabled={sending}
+            >
+              <Text style={styles.sendButtonText}>
+                {sending ? '...' : editingMessageId ? 'Save' : 'Send'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
-    );
-  };
+      </KeyboardAvoidingView>
+  );
+};;
 
   return (
     <View style={styles.container}>
