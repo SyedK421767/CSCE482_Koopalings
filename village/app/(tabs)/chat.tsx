@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 
 const API_URL = 'https://village-backend-802022146719.us-central1.run.app';
@@ -836,6 +837,7 @@ function groupMessagesBySender(messages: ChatMessage[], currentUserId: number | 
 }
 
 export default function ChatScreen() {
+  const { recipientUserId } = useLocalSearchParams<{ recipientUserId?: string }>();
   const { currentUser } = useAuth();
   const userId = useMemo(() => {
     const candidate = currentUser?.userid;
@@ -872,6 +874,7 @@ export default function ChatScreen() {
   // ───────────────────────────────────────────────────────────────────────────
 
   const selectedConversationRef = useRef<number | null>(null);
+  const autoStartedRecipientRef = useRef<number | null>(null);
   const messageListRef = useRef<FlatList<any>>(null);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
@@ -1226,6 +1229,16 @@ export default function ChatScreen() {
       setStartingConversationUserId(null);
     }
   };
+
+  useEffect(() => {
+    if (!userId || typeof recipientUserId !== 'string') return;
+    const parsedRecipientUserId = Number(recipientUserId);
+    if (!Number.isInteger(parsedRecipientUserId) || parsedRecipientUserId <= 0) return;
+    if (parsedRecipientUserId === userId) return;
+    if (autoStartedRecipientRef.current === parsedRecipientUserId) return;
+    autoStartedRecipientRef.current = parsedRecipientUserId;
+    void handleStartConversation(parsedRecipientUserId);
+  }, [recipientUserId, userId, handleStartConversation]);
 
   const handleCreateGroup = async () => {
     if (!currentUser || !userId) return;

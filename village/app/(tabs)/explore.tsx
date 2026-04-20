@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 
 import { formatEventStartForDisplay, parseEventStart } from '@/lib/event-datetime';
 import {
@@ -76,6 +77,7 @@ type EventMarker = {
 
 export default function ExploreScreen() {
   const { currentUser } = useAuth();
+  const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
@@ -233,6 +235,27 @@ export default function ExploreScreen() {
       setGuestListModalVisible(false);
     });
   };
+
+  const handleContactCreator = useCallback((post: Post) => {
+    const creatorUserId = Number(post.userid);
+    if (!Number.isInteger(creatorUserId) || creatorUserId <= 0) {
+      setError('Creator information is missing for this event.');
+      return;
+    }
+    if (!currentUser?.userid) {
+      setError('Log in to message this event creator.');
+      return;
+    }
+    if (creatorUserId === currentUser.userid) {
+      setError('You cannot message yourself from your own event.');
+      return;
+    }
+    setError(null);
+    router.push({
+      pathname: '/(tabs)/chat',
+      params: { recipientUserId: String(creatorUserId) },
+    });
+  }, [currentUser?.userid, router]);
 
   useEffect(() => {
     if (selectedPost) {
@@ -447,7 +470,14 @@ export default function ExploreScreen() {
                     <Image source={{ uri: item.image_url }} style={styles.cardImage} />
                   )}
                   <Text style={styles.postTitle}>{item.title}</Text>
-                  <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleContactCreator(item);
+                    }}
+                  >
+                    <Text style={[styles.postAuthor, styles.creatorLinkText]}>by {item.displayname}</Text>
+                  </Pressable>
                   <Text style={styles.postDetail}>📍 {item.location}</Text>
                   <Text style={styles.postDetail}>
                     🕐{' '}
@@ -587,7 +617,9 @@ export default function ExploreScreen() {
                   )}
 
                   <Text style={styles.modalTitle}>{selectedPost.title}</Text>
-                  <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
+                  <Pressable onPress={() => handleContactCreator(selectedPost)}>
+                    <Text style={[styles.modalAuthor, styles.creatorLinkText]}>by {selectedPost.displayname}</Text>
+                  </Pressable>
 
                   <View style={styles.divider} />
 
@@ -1193,6 +1225,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.textSecondary,
     marginBottom: 12,
+  },
+  creatorLinkText: {
+    textDecorationLine: 'underline',
   },
   divider: {
     borderTopWidth: 1,

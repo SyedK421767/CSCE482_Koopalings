@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 
 import { formatEventStartForDisplay } from '@/lib/event-datetime';
 import { useAuth } from '@/context/auth-context';
@@ -39,6 +40,7 @@ type Post = {
 
 export default function HomeScreen() {
   const { currentUser } = useAuth();
+  const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
@@ -134,6 +136,26 @@ export default function HomeScreen() {
     });
   };
 
+  const handleContactCreator = useCallback((post: Post) => {
+    const creatorUserId = Number(post.userid);
+    if (!Number.isInteger(creatorUserId) || creatorUserId <= 0) {
+      Alert.alert('Unavailable', 'Creator information is missing for this event.');
+      return;
+    }
+    if (!currentUser?.userid) {
+      Alert.alert('Sign in required', 'Log in to message this event creator.');
+      return;
+    }
+    if (creatorUserId === currentUser.userid) {
+      Alert.alert('Your event', 'You cannot message yourself.');
+      return;
+    }
+    router.push({
+      pathname: '/(tabs)/chat',
+      params: { recipientUserId: String(creatorUserId) },
+    });
+  }, [currentUser?.userid, router]);
+
   useEffect(() => {
     if (selectedPost) {
       // Animate modal in
@@ -214,7 +236,14 @@ export default function HomeScreen() {
                     <Image source={{ uri: item.image_url }} style={styles.cardImage} />
                   )}
                   <Text style={styles.postTitle}>{item.title}</Text>
-                  <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleContactCreator(item);
+                    }}
+                  >
+                    <Text style={[styles.postAuthor, styles.creatorLinkText]}>by {item.displayname}</Text>
+                  </Pressable>
                   <Text style={styles.postDetail}>📍 {item.location}</Text>
                   <Text style={[styles.postDetail, { marginBottom: 24 }]}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
                 </Pressable>
@@ -237,7 +266,14 @@ export default function HomeScreen() {
                     <Image source={{ uri: item.image_url }} style={styles.cardImage} />
                   )}
                   <Text style={styles.postTitle}>{item.title}</Text>
-                  <Text style={styles.postAuthor}>by {item.displayname}</Text>
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleContactCreator(item);
+                    }}
+                  >
+                    <Text style={[styles.postAuthor, styles.creatorLinkText]}>by {item.displayname}</Text>
+                  </Pressable>
                   <Text style={styles.postDetail}>📍 {item.location}</Text>
                   <Text style={[styles.postDetail, { marginBottom: 24 }]}>🕐 {formatEventStartForDisplay(item.start_time)}</Text>
                 </Pressable>
@@ -297,7 +333,9 @@ export default function HomeScreen() {
                     <Image source={{ uri: selectedPost.image_url }} style={styles.modalImage} />
                   )}
                   <Text style={styles.modalTitle}>{selectedPost.title}</Text>
-                  <Text style={styles.modalAuthor}>by {selectedPost.displayname}</Text>
+                  <Pressable onPress={() => handleContactCreator(selectedPost)}>
+                    <Text style={[styles.modalAuthor, styles.creatorLinkText]}>by {selectedPost.displayname}</Text>
+                  </Pressable>
 
                   <View style={styles.divider} />
 
@@ -621,6 +659,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.textSecondary,
     marginBottom: 12,
+  },
+  creatorLinkText: {
+    textDecorationLine: 'underline',
   },
   divider: {
     borderTopWidth: 1,
