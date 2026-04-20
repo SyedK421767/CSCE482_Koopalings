@@ -36,7 +36,7 @@ export default function OnboardingInterestsScreen() {
 
   useEffect(() => {
     if (!currentUser) {
-      router.replace('/');
+      router.replace('/login');
       return;
     }
 

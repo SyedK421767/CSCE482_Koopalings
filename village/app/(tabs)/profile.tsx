@@ -429,7 +429,7 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     setCurrentUser(null);
     setIsSignedIn(false);
-    router.replace('/');
+    router.replace('/login');
   };
 
   const fetchGuestList = useCallback(async (event: Post) => {
