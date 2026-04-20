@@ -746,6 +746,42 @@ function includesQuery(source: string | null | undefined, query: string) {
   return String(source ?? '').toLowerCase().includes(query.toLowerCase());
 }
 
+async function extractErrorMessage(res: Response, fallback: string) {
+  const text = await res.clone().text().catch(() => '');
+  const payload = await res.json().catch(() => null);
+  const serverMessage =
+    typeof payload === 'object' && payload !== null
+      ? (payload as { error?: string; message?: string }).error ??
+        (payload as { error?: string; message?: string }).message
+      : null;
+  return {
+    message: serverMessage ?? (text.trim() || fallback),
+    bodyText: text,
+  };
+}
+
+function findDirectConversationId(
+  conversations: Conversation[],
+  currentUserId: number,
+  otherUserId: number
+) {
+  for (const conversation of conversations) {
+    if (conversation.is_group) continue;
+    const participantIds = new Set<number>(
+      (conversation.participants ?? [])
+        .map((participant) => Number(participant.userid))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    );
+    if (participantIds.size === 2 && participantIds.has(currentUserId) && participantIds.has(otherUserId)) {
+      return conversation.conversationid;
+    }
+    if (Number(conversation.other_userid) === otherUserId) {
+      return conversation.conversationid;
+    }
+  }
+  return null;
+}
+
 type ChatMessageGroup = {
   senderId: number;
   senderName: string;
@@ -827,6 +863,7 @@ export default function ChatScreen() {
   const [groupSelections, setGroupSelections] = useState<number[]>([]);
   const [groupCreating, setGroupCreating] = useState(false);
   const [groupSearch, setGroupSearch] = useState('');
+  const [startingConversationUserId, setStartingConversationUserId] = useState<number | null>(null);
 
   // ── Group info modal state ──────────────────────────────────────────────────
   const [groupInfoVisible, setGroupInfoVisible] = useState(false);
@@ -1127,29 +1164,66 @@ export default function ChatScreen() {
     };
   }, [userId, loadConversations, markConversationRead]);
 
-  const handleStartConversation = async (otherUserId: number) => {
-    if (!userId) return;
+  const handleStartConversation = async (otherUserIdCandidate: number) => {
+    if (!userId) {
+      Alert.alert('Error', 'You must be signed in before starting a conversation.');
+      return;
+    }
+    const otherUserId = Number(otherUserIdCandidate);
+    if (!Number.isInteger(otherUserId) || otherUserId <= 0) {
+      Alert.alert('Error', 'Could not start chat: invalid recipient.');
+      return;
+    }
+    if (otherUserId === userId) {
+      Alert.alert('Error', 'You cannot start a chat with yourself.');
+      return;
+    }
+    if (startingConversationUserId === otherUserId) {
+      return;
+    }
+
+    const existingConversationId = findDirectConversationId(conversations, userId, otherUserId);
+    if (existingConversationId) {
+      setShowUsersModal(false);
+      setUserSearch('');
+      await loadMessages(existingConversationId);
+      return;
+    }
 
     try {
+      setStartingConversationUserId(otherUserId);
       const res = await fetch(`${API_URL}/chat/conversations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, otherUserId }),
+        body: JSON.stringify({ userId, participantIds: [otherUserId] }),
       });
 
       if (!res.ok) {
-        Alert.alert('Error', 'Could not start conversation.');
+        const { message, bodyText } = await extractErrorMessage(res, 'Could not start conversation.');
+        console.error('Failed to start conversation:', {
+          status: res.status,
+          request: { userId, participantIds: [otherUserId] },
+          response: bodyText,
+        });
+        Alert.alert('Error', message);
         return;
       }
 
       const data = (await res.json()) as { conversationId: number };
+      if (!data?.conversationId || !Number.isInteger(Number(data.conversationId))) {
+        console.error('Start conversation succeeded without valid conversationId:', data);
+        Alert.alert('Error', 'Conversation was created but could not be opened.');
+        return;
+      }
       setShowUsersModal(false);
       setUserSearch('');
       await loadConversations();
-      await loadMessages(data.conversationId);
+      await loadMessages(Number(data.conversationId));
     } catch (err) {
       console.error('Failed to start conversation:', err);
-      Alert.alert('Error', 'Could not start conversation.');
+      Alert.alert('Error', 'Could not start conversation. Please try again.');
+    } finally {
+      setStartingConversationUserId(null);
     }
   };
 

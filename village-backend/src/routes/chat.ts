@@ -111,6 +111,12 @@ router.post('/conversations', async (req: Request, res: Response) => {
           ON cp1.conversationid = c.conversationid AND cp1.userid = $1
         JOIN conversation_participants cp2
           ON cp2.conversationid = c.conversationid AND cp2.userid = $2
+        WHERE c.is_group = FALSE
+          AND (
+            SELECT COUNT(*)
+            FROM conversation_participants cp
+            WHERE cp.conversationid = c.conversationid
+          ) = 2
         LIMIT 1
         `,
         [userId, otherUserId]
